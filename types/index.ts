@@ -8,6 +8,10 @@ export interface LandmarkAnalysis {
   architect?: string;
   yearBuilt?: number;
   funFacts: string[];
+  faq?: Array<{
+    question: string;
+    answer: string;
+  }>;
   culturalSignificance?: string;
   architecturalStyle?: string;
   visitingTips?: string[];

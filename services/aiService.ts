@@ -135,6 +135,20 @@ The JSON must have this exact structure:
     "Interesting fact 2", 
     "Interesting fact 3"
   ],
+  "faq": [
+    {
+      "question": "How tall is this landmark?",
+      "answer": "Provide specific height and context"
+    },
+    {
+      "question": "When was it built?",
+      "answer": "Construction timeline and historical context"
+    },
+    {
+      "question": "Who designed it?",
+      "answer": "Architect or designer information"
+    }
+  ],
   "culturalSignificance": "Cultural and historical importance",
   "architecturalStyle": "Architectural style (e.g., Gothic, Renaissance)",
   "visitingTips": [
@@ -220,6 +234,7 @@ function parseGeminiResponse(response: any): Partial<LandmarkAnalysis> {
     
     // Ensure arrays exist
     parsed.funFacts = parsed.funFacts || [];
+    parsed.faq = parsed.faq || [];
     parsed.visitingTips = parsed.visitingTips || [];
     
     // Ensure coordinates exist
@@ -247,6 +262,12 @@ function parseGeminiResponse(response: any): Partial<LandmarkAnalysis> {
       architect: 'Unknown',
       yearBuilt: undefined,
       funFacts: ['This landmark requires manual identification.'],
+      faq: [
+        {
+          question: 'What is this landmark?',
+          answer: 'This landmark could not be automatically identified. Please try scanning a clearer image or search manually.'
+        }
+      ],
       culturalSignificance: 'Unknown cultural significance.',
       architecturalStyle: 'Unknown',
       visitingTips: ['Consider researching this location manually.'],

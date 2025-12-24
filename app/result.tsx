@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
+import MapView, { Marker } from 'react-native-maps';
 
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -55,6 +56,8 @@ export default function ResultScreen() {
   const [enrichingNearby, setEnrichingNearby] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const [expandedFAQ, setExpandedFAQ] = useState<number | null>(null);
 
   useEffect(() => {
     loadLandmarkData();
@@ -224,9 +227,11 @@ export default function ResultScreen() {
         <View style={[styles.infoIconBox, { backgroundColor: colors.backgroundSecondary }]}>
           <IconSymbol name={icon as any} size={18} color={colors.textPrimary} />
         </View>
-        <View>
+        <View style={styles.infoTextContainer}>
           <ThemedText style={[styles.infoLabel, { color: colors.textSecondary }]}>{label}</ThemedText>
-          <ThemedText style={[styles.infoValue, { color: colors.textPrimary }]}>{value}</ThemedText>
+          <ThemedText style={[styles.infoValue, { color: colors.textPrimary }]} numberOfLines={2}>
+            {value}
+          </ThemedText>
         </View>
       </View>
     );
@@ -354,8 +359,9 @@ export default function ResultScreen() {
               pathname: '/chat',
               params: { landmarkId: landmark.id, landmarkName: landmark.name, landmarkData: JSON.stringify(landmark) }
             })} 
-            style={styles.headerButton}
+            style={styles.headerChatButton}
           >
+            <ThemedText style={styles.headerButtonText}>Chat with AI</ThemedText>
             <IconSymbol name="message.fill" size={20} color="#FFFFFF" />
           </Pressable>
           <Pressable onPress={() => router.back()} style={styles.headerButton}>
@@ -458,6 +464,37 @@ export default function ResultScreen() {
           </View>
         )}
 
+        {/* FAQ Section */}
+        {landmark.faq && landmark.faq.length > 0 && (
+          <View style={styles.section}>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Frequently Asked Questions</ThemedText>
+            {landmark.faq.map((faqItem, i) => (
+              <View key={i} style={[styles.faqItem, { backgroundColor: colors.backgroundSecondary }]}>
+                <Pressable
+                  style={styles.faqQuestion}
+                  onPress={() => setExpandedFAQ(expandedFAQ === i ? null : i)}
+                >
+                  <ThemedText style={[styles.faqQuestionText, { color: colors.textPrimary }]}>
+                    {faqItem.question}
+                  </ThemedText>
+                  <IconSymbol 
+                    name={expandedFAQ === i ? "chevron.up" : "chevron.down"} 
+                    size={16} 
+                    color={colors.textSecondary} 
+                  />
+                </Pressable>
+                {expandedFAQ === i && (
+                  <View style={styles.faqAnswer}>
+                    <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                      {faqItem.answer}
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* Visiting Tips */}
         {landmark.visitingTips && landmark.visitingTips.length > 0 && (
           <View style={styles.section}>
@@ -476,7 +513,24 @@ export default function ResultScreen() {
         {/* Nearby Places */}
         {(nearbyPlaces.length > 0 || enrichingNearby) && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Nearby Gems</ThemedText>
+            <View style={styles.sectionHeaderWithToggle}>
+              <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Nearby Gems</ThemedText>
+              {nearbyPlaces.length > 0 && (
+                <Pressable 
+                  style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary }]}
+                  onPress={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
+                >
+                  <ThemedText style={[styles.toggleButtonText, { color: colors.textSecondary }]}>
+                    {viewMode === 'list' ? 'Open Map' : 'Show List'}
+                  </ThemedText>
+                  <IconSymbol 
+                    name={viewMode === 'list' ? "map.fill" : "list.bullet"} 
+                    size={20} 
+                    color={colors.primary} 
+                  />
+                </Pressable>
+              )}
+            </View>
             {enrichingNearby && nearbyPlaces.length === 0 ? (
               <View style={styles.loadingNearby}>
                 <ActivityIndicator color={colors.primary} />
@@ -484,16 +538,59 @@ export default function ResultScreen() {
                   Finding nearby places...
                 </ThemedText>
               </View>
-            ) : (
-              <FlatList
-                data={nearbyPlaces}
-                renderItem={renderNearbyCard}
-                keyExtractor={item => item.placeId}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 16, paddingRight: 20 }}
-              />
-            )}
+            ) : nearbyPlaces.length > 0 ? (
+              viewMode === 'list' ? (
+                <FlatList
+                  data={nearbyPlaces}
+                  renderItem={renderNearbyCard}
+                  keyExtractor={item => item.placeId}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 16, paddingRight: 20 }}
+                />
+              ) : (
+                <View style={[styles.mapContainer, { backgroundColor: colors.card }]}>
+                  <MapView
+                    style={styles.mapView}
+                    initialRegion={{
+                      latitude: landmark?.coordinates?.latitude || 0,
+                      longitude: landmark?.coordinates?.longitude || 0,
+                      latitudeDelta: 0.02,
+                      longitudeDelta: 0.02,
+                    }}
+                    showsUserLocation={true}
+                  >
+                    {/* Main Landmark Marker */}
+                    {landmark?.coordinates && (
+                      <Marker
+                        coordinate={{
+                          latitude: landmark.coordinates.latitude,
+                          longitude: landmark.coordinates.longitude,
+                        }}
+                        title={landmark.name}
+                        description="Main Landmark"
+                        pinColor="red"
+                      />
+                    )}
+                    
+                    {/* Nearby Places Markers */}
+                    {nearbyPlaces.map((place) => (
+                      <Marker
+                        key={place.placeId}
+                        coordinate={{
+                          latitude: place.coordinates.latitude,
+                          longitude: place.coordinates.longitude,
+                        }}
+                        title={place.name}
+                        description={place.rating ? `⭐ ${place.rating}` : 'Nearby place'}
+                        pinColor="#3B82F6"
+                        onCalloutPress={() => openMapsForPlace(place)}
+                      />
+                    ))}
+                  </MapView>
+                </View>
+              )
+            ) : null}
           </View>
         )}
         </View>
@@ -548,6 +645,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center', 
     alignItems: 'center',
     ...Shadows.medium
+  },
+  headerChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    gap: 8,
+    ...Shadows.medium
+  },
+  headerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   // Scroll Container
@@ -611,6 +724,25 @@ const styles = StyleSheet.create({
     ...Typography.h3,
     marginBottom: Spacing.lg 
   },
+  sectionHeaderWithToggle: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.lg,
+  },
+  viewToggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 6,
+    ...Shadows.small,
+  },
+  toggleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   bodyText: { 
     ...Typography.body,
     lineHeight: 26,
@@ -625,10 +757,12 @@ const styles = StyleSheet.create({
   },
   infoRow: { 
     flexDirection: 'row', 
-    alignItems: 'center', 
+    alignItems: 'flex-start', 
     gap: Spacing.md,
     minWidth: '45%', // Ensure proper wrapping
-    marginBottom: Spacing.sm
+    maxWidth: '100%', // Prevent overflow
+    marginBottom: Spacing.sm,
+    flex: 1
   },
   infoIconBox: { 
     width: 40, 
@@ -636,6 +770,10 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     justifyContent: 'center', 
     alignItems: 'center' 
+  },
+  infoTextContainer: {
+    flex: 1,
+    minWidth: 0, // Allow text to shrink
   },
   infoLabel: { 
     fontSize: 11,
@@ -662,6 +800,32 @@ const styles = StyleSheet.create({
     height: 6, 
     borderRadius: 3,
     marginTop: 10
+  },
+
+  // FAQ Section
+  faqItem: {
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+    overflow: 'hidden',
+  },
+  faqQuestion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+  },
+  faqQuestionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: Spacing.sm,
+  },
+  faqAnswer: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
   },
 
   // Visiting Tips  
@@ -732,6 +896,18 @@ const styles = StyleSheet.create({
   mapsIndicatorText: {
     fontSize: 10,
     fontWeight: '600'
+  },
+
+  // Map View Styles
+  mapContainer: {
+    height: 250,
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    ...Shadows.medium,
+  },
+  mapView: {
+    flex: 1,
+    borderRadius: BorderRadius.lg,
   },
 
   // Bottom Action Bar
