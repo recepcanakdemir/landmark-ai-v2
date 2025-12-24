@@ -1,0 +1,246 @@
+import { StyleSheet, FlatList, Alert, RefreshControl, View } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { StatusBar } from 'expo-status-bar';
+import { router } from 'expo-router';
+
+import { ThemedText } from '@/components/themed-text';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { LandmarkCard } from '@/components/LandmarkCard';
+import { CustomButton } from '@/components/CustomButton';
+import { TabHeader } from '@/components/TabHeader';
+import { Colors, Spacing } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { LandmarkAnalysis } from '@/types';
+import { getSavedLandmarks, removeLandmark } from '@/services/storageService';
+
+
+export default function PassportScreen() {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  const [landmarks, setLandmarks] = useState<LandmarkAnalysis[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Load landmarks on initial mount
+  useEffect(() => {
+    loadLandmarks();
+  }, []);
+
+  // Reload when screen comes into focus (to catch newly saved landmarks)
+  useFocusEffect(
+    useCallback(() => {
+      loadLandmarks();
+    }, [])
+  );
+
+  const loadLandmarks = async () => {
+    try {
+      setLoading(true);
+      const savedLandmarks = await getSavedLandmarks();
+      
+      // Filter out any invalid landmarks
+      const validLandmarks = savedLandmarks.filter(landmark => 
+        landmark && landmark.id && landmark.name
+      );
+      
+      setLandmarks(validLandmarks);
+      console.log('Loaded saved landmarks:', validLandmarks.length);
+    } catch (error) {
+      console.error('Error loading landmarks:', error);
+      Alert.alert('Error', 'Failed to load your travel collection');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadLandmarks();
+    setRefreshing(false);
+  };
+
+  const handleLandmarkPress = (landmark: LandmarkAnalysis) => {
+    // Navigate to result screen with saved landmark data
+    router.push({
+      pathname: '/result',
+      params: { 
+        landmarkId: landmark.id,
+        imageUri: landmark.imageUrl || '',
+        savedLandmark: JSON.stringify(landmark),
+        source: 'saved'
+      }
+    });
+  };
+
+  const handleScanPress = () => {
+    router.push('/camera');
+  };
+
+  const handleDeleteLandmark = (landmark: LandmarkAnalysis) => {
+    Alert.alert(
+      "Remove Landmark",
+      `Remove "${landmark.name}" from your passport?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Remove", 
+          style: "destructive", 
+          onPress: () => deleteLandmark(landmark.id, landmark.name)
+        }
+      ]
+    );
+  };
+
+  const deleteLandmark = async (landmarkId: string, landmarkName: string) => {
+    try {
+      console.log('Deleting landmark:', landmarkName);
+      await removeLandmark(landmarkId);
+      
+      // Update local state immediately
+      setLandmarks(prev => prev.filter(landmark => landmark.id !== landmarkId));
+      
+      // Optional: Show success message
+      Alert.alert('Removed', `"${landmarkName}" has been removed from your passport.`);
+    } catch (error) {
+      console.error('Error deleting landmark:', error);
+      Alert.alert('Error', 'Failed to remove landmark. Please try again.');
+    }
+  };
+
+  const renderLandmarkCard = ({ item }: { item: LandmarkAnalysis }) => {
+    // Safety check to prevent rendering invalid items
+    if (!item || !item.id || !item.name) {
+      return null;
+    }
+
+    return (
+      <LandmarkCard
+        id={item.id}
+        name={item.name}
+        location={item.location || item.country || 'Unknown location'}
+        imageUrl={item.imageUrl}
+        dateAdded={new Date(item.analyzedAt)}
+        confidence={item.accuracy ? Math.round(item.accuracy * 100) : undefined}
+        tags={['Visited', 'Saved']}
+        onPress={() => handleLandmarkPress(item)}
+        onDelete={() => handleDeleteLandmark(item)}
+        onFavorite={() => handleLandmarkPress(item)} // For now, just navigate
+        isFavorite={true}
+        size="medium"
+      />
+    );
+  };
+
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <View style={styles.emptyContent}>
+        <IconSymbol 
+          name="building.columns.fill" 
+          size={64} 
+          color={colors.primary} 
+        />
+        <ThemedText style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+          Your Passport is Empty
+        </ThemedText>
+        <ThemedText style={[styles.emptyDescription, { color: colors.textSecondary }]}>
+          Start scanning landmarks to build your personal travel collection
+        </ThemedText>
+        <CustomButton
+          title="Scan Landmark"
+          onPress={handleScanPress}
+          variant="primary"
+          size="large"
+          icon="camera.fill"
+          fullWidth={true}
+        />
+      </View>
+    </View>
+  );
+
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      
+      {/* Header */}
+      <TabHeader
+        title="My Passport"
+        subtitle={landmarks.length > 0 
+          ? `${landmarks.length} landmark${landmarks.length !== 1 ? 's' : ''} discovered`
+          : 'Your travel collection'
+        }
+        alignment="left"
+      />
+      
+      {/* Landmarks Grid */}
+      <FlatList
+        data={landmarks}
+        renderItem={renderLandmarkCard}
+        keyExtractor={(item, index) => item?.id || `landmark-${index}`}
+        style={styles.listContainer}
+        contentContainerStyle={landmarks.length > 0 ? styles.listContent : styles.emptyListContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+          />
+        }
+        ListEmptyComponent={!loading ? renderEmptyState : null}
+        ItemSeparatorComponent={() => <View style={styles.cardSeparator} />}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+
+  // LIST
+  listContainer: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+  },
+  emptyListContent: {
+    paddingBottom: 100,
+    flex: 1,
+  },
+  cardSeparator: {
+    height: Spacing.md,
+  },
+
+  // EMPTY STATE
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyContent: {
+    alignItems: 'center',
+    maxWidth: 280,
+    width: '100%',
+  },
+  emptyTitle: {
+    fontSize: 24,
+    fontWeight: '700' as const,
+    marginTop: 24,
+    textAlign: 'center',
+    lineHeight: 30,
+  },
+  emptyDescription: {
+    fontSize: 16,
+    fontWeight: '400' as const,
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 32,
+    lineHeight: 22,
+  },
+});

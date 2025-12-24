@@ -1,98 +1,233 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet, View, ScrollView, FlatList } from 'react-native';
+import { router } from 'expo-router';
+import { useState, useEffect } from 'react';
+import { StatusBar } from 'expo-status-bar';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { ActionCard } from '@/components/ActionCard';
+import { LandmarkCard } from '@/components/LandmarkCard';
+import { CustomButton } from '@/components/CustomButton';
+import { TabHeader } from '@/components/TabHeader';
+import { Colors, Typography, Spacing } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getCurrentUsageStats } from '@/services/limitService';
+import { getScanHistory } from '@/services/storageService';
+import { LimitCheckResult, LandmarkAnalysis } from '@/types';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const colorScheme = useColorScheme();
+  const [usageStats, setUsageStats] = useState<LimitCheckResult | null>(null);
+  const [recentLandmarks, setRecentLandmarks] = useState<LandmarkAnalysis[]>([]);
+  const [loading, setLoading] = useState(true);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [stats, scanHistory] = await Promise.all([
+        getCurrentUsageStats(),
+        getScanHistory()
+      ]);
+      setUsageStats(stats);
+      
+      // Get recent scans (last 5) from scan history
+      const recentScans = scanHistory
+        .filter(landmark => landmark && landmark.id && landmark.name)
+        .slice(0, 5); // Show only recent 5
+      
+      setRecentLandmarks(recentScans);
+      console.log('Loaded recent scans:', recentScans.length);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setRecentLandmarks([]); // Set empty array on error
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleScanPress = async () => {
+    if (!usageStats) return;
+
+    if (usageStats.isPremium || usageStats.remaining > 0) {
+      router.push('/camera');
+    } else {
+      router.push('/paywall?source=scan_limit');
+    }
+  };
+
+  const handleExplorePress = () => {
+    // Navigate to explore/map screen
+    // For now, redirect to camera as placeholder
+    router.push('/camera');
+  };
+
+  const handleViewAllLandmarks = () => {
+    router.push('/passport');
+  };
+
+  const handleLandmarkPress = (landmark: LandmarkAnalysis) => {
+    // Safety check before navigation
+    if (!landmark || !landmark.id) {
+      console.warn('Invalid landmark data for navigation:', landmark);
+      return;
+    }
+
+    router.push({
+      pathname: '/result',
+      params: { 
+        landmarkId: landmark.id,
+        savedLandmark: JSON.stringify(landmark),
+        source: 'recent'
+      }
+    });
+  };
+
+
+  const renderRecentLandmark = ({ item }: { item: LandmarkAnalysis }) => {
+    // Safety check to prevent rendering invalid items
+    if (!item || !item.id || !item.name) {
+      return null;
+    }
+
+    return (
+      <LandmarkCard
+        id={item.id}
+        name={item.name}
+        location={item.location || item.country || 'Unknown location'}
+        imageUrl={item.imageUrl}
+        dateAdded={new Date(item.analyzedAt || Date.now())}
+        confidence={item.accuracy ? Math.round(item.accuracy * 100) : undefined}
+        tags={['Recent Scan']}
+        onPress={() => handleLandmarkPress(item)}
+        size="small"
+        style={styles.recentLandmarkCard}
+      />
+    );
+  };
+
+  const colors = Colors[colorScheme ?? 'light'];
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      
+      {/* Header - Fixed at top */}
+      <TabHeader
+        title="Discover the World"
+        subtitle="Good morning! ✈️"
+        titleStyle={{ fontSize: 28, lineHeight: 34 }}
+        alignment="left"
+      />
+      
+      <ScrollView 
+        style={styles.scrollContainer}
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+      >
+
+        {/* Main Action Cards */}
+        <View style={styles.actionsSection}>
+          <ActionCard
+            title="Scan Landmark"
+            subtitle="Discover the history behind any landmark"
+            icon="camera.fill"
+            iconColor={colors.primary}
+            onPress={handleScanPress}
+            badge={usageStats?.remaining.toString()}
+          />
+          
+          <ActionCard
+            title="Explore Map"
+            subtitle="Find interesting places near you"
+            icon="map.fill"
+            iconColor={colors.sunsetOrange}
+            onPress={handleExplorePress}
+          />
+        </View>
+
+        {/* Recent Landmarks Section - Always show title */}
+        <View style={styles.recentSection}>
+          <View style={styles.sectionHeader}>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Recent Discoveries
+            </ThemedText>
+            {recentLandmarks.length > 0 && (
+              <CustomButton
+                title="View All"
+                onPress={handleViewAllLandmarks}
+                variant="ghost"
+                size="small"
+              />
+            )}
+          </View>
+          
+          {recentLandmarks.length > 0 ? (
+            <FlatList
+              data={recentLandmarks}
+              renderItem={renderRecentLandmark}
+              keyExtractor={(item, index) => item?.id || `landmark-${index}`}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.recentLandmarksList}
+              ItemSeparatorComponent={() => <View style={{ width: Spacing.md }} />}
+            />
+          ) : (
+            !loading && (
+              <ThemedText style={[styles.emptyMessage, { color: colors.textSecondary }]}>
+                No recent discoveries
+              </ThemedText>
+            )
+          )}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+  },
+
+  // Actions
+  actionsSection: {
+    marginBottom: Spacing.xl,
+  },
+
+  // Recent Landmarks
+  recentSection: {
+    marginBottom: Spacing.xl,
+  },
+  sectionHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
+    marginBottom: Spacing.lg,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  sectionTitle: {
+    ...Typography.h2,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  recentLandmarksList: {
+    paddingLeft: Spacing.xs,
+  },
+  recentLandmarkCard: {
+    width: 160,
+  },
+
+  // Empty State
+  emptyMessage: {
+    ...Typography.body,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: Spacing.lg,
   },
 });

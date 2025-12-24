@@ -1,0 +1,73 @@
+I am rewriting my iOS app "LandmarkAI" from scratch using React Native (Expo). I need you to act as the Senior Lead Developer and help me build the core structure, logic, and pages.
+
+1. Product Overview (What are we building?) LandmarkAI is an AI-powered travel companion that helps users build a collection of visited historical places.
+
+Core Experience (Dashboard-First): The app opens to a modern Home Dashboard. This screen displays the user's daily usage limit (e.g., "1/3 Free Scans Left") and a prominent, animated "SCAN LANDMARK" button.
+
+The Magic: When the user taps "Scan", it launches a full-screen camera. The image is sent to Gemini AI (via Supabase Edge Function), which returns structured JSON details (Name, History, Architect, Fun Facts).
+
+Collection Aspect: Analyzed landmarks are automatically saved to a local "Passport" (Collection), encouraging users to "collect them all."
+
+Interactive Features:
+
+Result Screen: Shows detailed info cards and a "Chat with Landmark" button.
+
+Nearby Places: Google Places API integration to show must-see spots nearby.
+
+2. Tech Stack
+
+Framework: React Native with Expo (Managed Workflow, latest SDK).
+
+Routing: expo-router (File-based routing with Tabs).
+
+Backend: Supabase (PostgreSQL for limits, Edge Functions for AI proxy).
+
+State/Storage: AsyncStorage (Local-first persistence), SecureStore (Device ID).
+
+Monetization: RevenueCat (Subscriptions).
+
+AI Engine: Google Gemini 2.0 Flash (via Edge Functions).
+
+3. Monetization & Access Logic (Metered Freemium)
+
+User Type A: New/Free User (No Login)
+
+Limit: Strict limit of 3 Analyses per day.
+
+Display: The Home Dashboard must visually show this limit (e.g., a progress bar or text "2/3").
+
+Tracking: Uses device_id in SecureStore checked against Supabase daily_limits table.
+
+Restrictions:
+
+"Chat with Landmark" is LOCKED (Paywall).
+
+4th scan attempt triggers a Non-Exitable Paywall.
+
+User Type B: Premium / Free Trial User
+
+Subscribed to "Weekly Plan" (includes 3-Day Free Trial).
+
+Status: Validated via RevenueCat.
+
+Privileges: UNLIMITED analyses, UNLIMITED Chat. Home screen shows "Premium Active" instead of a limit counter.
+
+4. Target Folder Structure We need a clean, modular structure using Expo Router Tabs:
+app/
+├── (tabs)/
+│   ├── _layout.tsx       # Tab Bar configuration (Home, Passport, Settings)
+│   ├── index.tsx         # 🏠 HOME DASHBOARD (Stats, Big "Scan" Button, Recent items)
+│   ├── passport.tsx      # 📚 PASSPORT (List of locally saved landmarks)
+│   └── settings.tsx      # ⚙️ SETTINGS (Restore purchase, Language, etc.)
+├── camera.tsx            # 📸 CAMERA SCREEN (Launched from Home, Full Screen)
+├── result.tsx            # ✨ ANALYSIS RESULT (Presentation screen)
+├── chat.tsx              # 💬 AI CHAT (Modal, takes landmark context)
+├── paywall.tsx           # 💰 SUBSCRIPTION SCREEN (Modal)
+├── onboarding.tsx        # 👋 INTRO SLIDES (First launch only)
+├── _layout.tsx           # Root Layout (Providers: Language, Auth, etc.)
+└── ...
+
+5. Your Task We will build this step-by-step. Step 1: Create the types/index.ts file. Define interfaces for: * LandmarkAnalysis (The JSON structure expected from Gemini). * NearbyPlace (Google Places result). * SubscriptionStatus. Step 2: Create the services/limitService.ts. This is critical. It must: * Check RevenueCat status first. * If not premium, check Supabase RPC check_and_increment_limit. * Return an object like { allowed: boolean, remaining: number, isPremium: boolean } so the Home Screen can display the counter correctly.
+
+Dont use emojies as icons, use icon libraries. For design and ui make it modern app, dont use linear gradient also. 
+Let's start with Step 1 and Step 2.
