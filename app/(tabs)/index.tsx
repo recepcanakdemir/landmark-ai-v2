@@ -1,16 +1,18 @@
 import { StyleSheet, View, ScrollView, FlatList } from 'react-native';
 import { router } from 'expo-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemedText } from '@/components/themed-text';
 import { ActionCard } from '@/components/ActionCard';
 import { LandmarkCard } from '@/components/LandmarkCard';
-import { CustomButton } from '@/components/CustomButton';
 import { TabHeader } from '@/components/TabHeader';
-import { Colors, Typography, Spacing } from '@/constants/theme';
+import { Colors, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getCurrentUsageStats } from '@/services/limitService';
+import { getCurrentUsageStats, performScan } from '@/services/limitService';
 import { getScanHistory } from '@/services/storageService';
 import { LimitCheckResult, LandmarkAnalysis } from '@/types';
 
@@ -22,7 +24,34 @@ export default function HomeScreen() {
 
   useEffect(() => {
     loadData();
+    requestLocationPermissionSilently();
   }, []);
+
+  // Auto-refresh when screen gains focus (catches updates from modal/camera)
+  useFocusEffect(
+    useCallback(() => {
+      checkAndRefresh();
+    }, [])
+  );
+
+  const checkAndRefresh = async () => {
+    try {
+      // Check if refresh was requested from modal
+      const refreshFlag = await AsyncStorage.getItem('home_needs_refresh');
+      if (refreshFlag) {
+        // Clear the flag and refresh
+        await AsyncStorage.removeItem('home_needs_refresh');
+        await loadData();
+      } else {
+        // Normal focus refresh
+        loadData();
+      }
+    } catch (error) {
+      console.error('Error checking refresh flag:', error);
+      // Fallback to normal refresh
+      loadData();
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -47,25 +76,69 @@ export default function HomeScreen() {
     }
   };
 
-  const handleScanPress = async () => {
-    if (!usageStats) return;
+  const requestLocationPermissionSilently = async () => {
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      
+      if (status === 'undetermined') {
+        console.log('Location permission undetermined, requesting silently...');
+        const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
+        await AsyncStorage.setItem('location_permission_status', newStatus);
+        console.log('Location permission result:', newStatus);
+      } else {
+        await AsyncStorage.setItem('location_permission_status', status);
+        console.log('Location permission already determined:', status);
+      }
+    } catch (error) {
+      console.log('Error requesting location permission:', error);
+      await AsyncStorage.setItem('location_permission_status', 'denied');
+    }
+  };
 
-    if (usageStats.isPremium || usageStats.remaining > 0) {
-      router.push('/camera');
-    } else {
+  const handleScanPress = async () => {
+    try {
+      // Real-time atomic check-and-reserve
+      const limitResult = await performScan();
+      
+      if (limitResult.allowed) {
+        router.push({
+          pathname: '/camera',
+          params: { scanReserved: 'true' }
+        });
+        
+        // Refresh usage stats for UI
+        loadData();
+      } else {
+        router.push('/paywall?source=scan_limit');
+      }
+    } catch (error) {
+      console.error('Error checking scan access:', error);
       router.push('/paywall?source=scan_limit');
     }
   };
 
-  const handleExplorePress = () => {
-    // Navigate to explore/map screen
-    // For now, redirect to camera as placeholder
-    router.push('/camera');
+  const handleExplorePress = async () => {
+    try {
+      // Real-time atomic check-and-reserve for art scanning
+      const limitResult = await performScan();
+      
+      if (limitResult.allowed) {
+        router.push({
+          pathname: '/camera',
+          params: { mode: 'museum', scanReserved: 'true' }
+        });
+        
+        // Refresh usage stats for UI
+        loadData();
+      } else {
+        router.push('/paywall?source=scan_limit');
+      }
+    } catch (error) {
+      console.error('Error checking scan access:', error);
+      router.push('/paywall?source=scan_limit');
+    }
   };
 
-  const handleViewAllLandmarks = () => {
-    router.push('/passport');
-  };
 
   const handleLandmarkPress = (landmark: LandmarkAnalysis) => {
     // Safety check before navigation
@@ -99,7 +172,7 @@ export default function HomeScreen() {
         imageUrl={item.imageUrl}
         dateAdded={new Date(item.analyzedAt || Date.now())}
         confidence={item.accuracy ? Math.round(item.accuracy * 100) : undefined}
-        tags={['Recent Scan']}
+        tags={[item.scanType === 'museum' ? 'Collection' : 'Landmark']}
         onPress={() => handleLandmarkPress(item)}
         size="small"
         style={styles.recentLandmarkCard}
@@ -117,7 +190,7 @@ export default function HomeScreen() {
       <TabHeader
         title="Discover the World"
         subtitle="Good morning! ✈️"
-        titleStyle={{ fontSize: 28, lineHeight: 34 }}
+        titleStyle={{ fontSize: 28, lineHeight: 34 } as any}
         alignment="left"
       />
       
@@ -135,15 +208,16 @@ export default function HomeScreen() {
             icon="camera.fill"
             iconColor={colors.primary}
             onPress={handleScanPress}
-            badge={usageStats?.remaining.toString()}
+            badge={usageStats?.isPremium || usageStats?.isTrialActive ? '∞' : Math.max(0, usageStats?.remaining || 0).toString()}
           />
           
           <ActionCard
-            title="Explore Map"
-            subtitle="Find interesting places near you"
-            icon="map.fill"
+            title="Scan Art"
+            subtitle="Identify artworks, sculptures & museum pieces"
+            icon="paintbrush.fill"
             iconColor={colors.sunsetOrange}
             onPress={handleExplorePress}
+            badge={usageStats?.isPremium || usageStats?.isTrialActive ? '∞' : Math.max(0, usageStats?.remaining || 0).toString()}
           />
         </View>
 
@@ -153,14 +227,6 @@ export default function HomeScreen() {
             <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>
               Recent Discoveries
             </ThemedText>
-            {recentLandmarks.length > 0 && (
-              <CustomButton
-                title="View All"
-                onPress={handleViewAllLandmarks}
-                variant="ghost"
-                size="small"
-              />
-            )}
           </View>
           
           {recentLandmarks.length > 0 ? (
@@ -214,7 +280,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   sectionTitle: {
-    ...Typography.h2,
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 32,
+    letterSpacing: -0.25,
   },
   recentLandmarksList: {
     paddingLeft: Spacing.xs,
@@ -225,7 +294,9 @@ const styles = StyleSheet.create({
 
   // Empty State
   emptyMessage: {
-    ...Typography.body,
+    fontSize: 16,
+    fontWeight: '400',
+    lineHeight: 24,
     textAlign: 'center',
     fontStyle: 'italic',
     marginTop: Spacing.lg,

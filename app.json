@@ -2,14 +2,16 @@
   "expo": {
     "name": "LandmarkAI-v2",
     "slug": "LandmarkAI-v2",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "landmarkaiv2",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.recapp.landmarkai",
+      "buildNumber": "3"
     },
     "android": {
       "adaptiveIcon": {

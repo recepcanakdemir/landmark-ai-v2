@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { StyleSheet, View, Pressable, Alert, Dimensions } from 'react-native';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -6,6 +6,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -23,15 +25,50 @@ export default function CameraScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { mode } = useLocalSearchParams<{ mode?: ScanMode }>();
+  const { mode = 'landmark', scanReserved } = useLocalSearchParams<{ 
+    mode?: 'landmark' | 'museum'; 
+    scanReserved?: string;
+  }>();
   
   const [facing, setFacing] = useState<CameraType>('back');
   const [flash, setFlash] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [scanning, setScanning] = useState(false);
-  // Simplified to single scan mode for landmarks
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  // Support both landmark and museum scan modes
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+
+  // Configure scan mode
+  const scanConfig = {
+    landmark: {
+      instruction: "Frame the landmark in your camera",
+      color: colors.primary,
+      title: "Scanning Landmark...",
+      icon: "building.columns.fill"
+    },
+    museum: {
+      instruction: "Frame the artwork or museum piece clearly",
+      color: colors.sunsetOrange,
+      title: "Analyzing Artwork...",
+      icon: "paintbrush.fill"
+    }
+  }[mode];
+
+  useEffect(() => {
+    loadLocationPreference();
+  }, []);
+
+  const loadLocationPreference = async () => {
+    try {
+      const savedPreference = await AsyncStorage.getItem('location_enabled_preference');
+      if (savedPreference !== null) {
+        setLocationEnabled(savedPreference === 'true');
+      }
+    } catch (error) {
+      console.log('Error loading location preference:', error);
+    }
+  };
 
   if (!permission) {
     return <View style={styles.loadingContainer} />;
@@ -81,14 +118,18 @@ export default function CameraScreen() {
       setCapturing(true);
       setScanning(true);
 
-      // Check scan limits
-      const limitResult = await performScan();
-      if (!limitResult.allowed) {
-        setScanning(false);
-        setCapturing(false);
-        router.push('/paywall?source=scan_limit');
-        return;
+      // Check if scan was already reserved (from tab/homepage)
+      if (scanReserved !== 'true') {
+        // If not pre-reserved, check scan limits now
+        const limitResult = await performScan();
+        if (!limitResult.allowed) {
+          setScanning(false);
+          setCapturing(false);
+          router.push('/paywall?source=scan_limit');
+          return;
+        }
       }
+      // If scanReserved === 'true', scan was already decremented, proceed directly
 
       // Take photo
       const photo = await cameraRef.current.takePictureAsync({
@@ -98,12 +139,41 @@ export default function CameraScreen() {
 
       console.log('Photo captured:', photo.uri);
 
+      // Capture GPS coordinates if location is enabled
+      let locationCoords: string | undefined;
+      if (locationEnabled) {
+        try {
+          console.log('Attempting to get location...');
+          const locationPromise = Location.getCurrentPositionAsync({ 
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 1000,
+            distanceInterval: 1 
+          });
+          
+          const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Location timeout')), 2000)
+          );
+          
+          const location = await Promise.race([locationPromise, timeoutPromise]);
+          locationCoords = JSON.stringify({
+            lat: location.coords.latitude,
+            lng: location.coords.longitude
+          });
+          console.log('Location captured:', locationCoords);
+        } catch (error) {
+          console.log('Failed to get location, proceeding without:', error);
+          // Continue without location - don't block the user
+        }
+      }
+
       // Navigate to result screen (replace camera completely)
       router.replace({
         pathname: '/result',
         params: { 
           imageUri: photo.uri,
-          source: 'new'
+          source: 'new',
+          scanType: mode,
+          ...(locationCoords && { locationCoords })
         }
       });
 
@@ -171,20 +241,50 @@ export default function CameraScreen() {
     setFlash(!flash);
   };
 
+  const toggleLocation = async () => {
+    try {
+      if (!locationEnabled) {
+        // User wants to enable location - check permissions
+        const { status } = await Location.getForegroundPermissionsAsync();
+        
+        if (status === 'granted') {
+          setLocationEnabled(true);
+          await AsyncStorage.setItem('location_enabled_preference', 'true');
+        } else if (status === 'undetermined') {
+          const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
+          if (newStatus === 'granted') {
+            setLocationEnabled(true);
+            await AsyncStorage.setItem('location_enabled_preference', 'true');
+          } else {
+            Alert.alert(
+              'Location Permission',
+              'Location access helps improve landmark identification accuracy by providing geographical context.',
+              [{ text: 'OK' }]
+            );
+          }
+        } else {
+          Alert.alert(
+            'Location Permission Required',
+            'To improve scan accuracy, please enable location access in your device settings.',
+            [{ text: 'OK' }]
+          );
+        }
+      } else {
+        // User wants to disable location
+        setLocationEnabled(false);
+        await AsyncStorage.setItem('location_enabled_preference', 'false');
+      }
+    } catch (error) {
+      console.log('Error toggling location:', error);
+    }
+  };
+
   // Mode toggle removed - single scan mode for landmarks
 
   const handleBack = () => {
     router.back();
   };
 
-  // Simplified config for landmark scanning
-  const scanConfig = {
-    title: 'Scan',
-    subtitle: 'Discover landmark history',
-    color: colors.primary,
-    icon: 'camera.fill' as const,
-    instruction: 'Center the landmark in the frame'
-  };
 
   return (
     <View style={styles.container}>
@@ -211,6 +311,17 @@ export default function CameraScreen() {
         </Pressable>
 
         <View style={styles.topRightControls}>
+          <Pressable 
+            style={[styles.controlButton, locationEnabled && styles.activeControlButton]}
+            onPress={toggleLocation}
+          >
+            <IconSymbol 
+              name={locationEnabled ? "location.fill" : "location.slash"} 
+              size={20} 
+              color={locationEnabled ? colors.primary : "#FFFFFF"} 
+            />
+          </Pressable>
+          
           <Pressable 
             style={[styles.controlButton, flash && styles.activeControlButton]}
             onPress={toggleFlash}
@@ -246,7 +357,7 @@ export default function CameraScreen() {
           <View style={[styles.captureButtonInner, { backgroundColor: scanConfig.color }]}>
             {capturing || scanning ? (
               <ThemedText style={styles.capturingText}>
-                {scanning ? 'Analyzing...' : 'Capturing...'}
+                {scanning ? scanConfig.title : 'Capturing...'}
               </ThemedText>
             ) : (
               <IconSymbol name={scanConfig.icon} size={32} color="#FFFFFF" />

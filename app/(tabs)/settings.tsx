@@ -1,4 +1,4 @@
-import { StyleSheet, Pressable, Alert, ScrollView, View } from 'react-native';
+import { StyleSheet, Pressable, Alert, ScrollView, View, ActionSheetIOS, Platform } from 'react-native';
 import { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
@@ -9,11 +9,13 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { TabHeader } from '@/components/TabHeader';
 import { Colors, Shadows, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { getCachedSubscriptionStatus, refreshSubscriptionStatus } from '@/services/limitService';
 import { SubscriptionStatus } from '@/types';
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
+  const { preference, setThemePreference } = useTheme();
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -110,6 +112,45 @@ export default function SettingsScreen() {
       'Terms of service will be available in a future update.',
       [{ text: 'OK' }]
     );
+  };
+
+  const getThemeDisplayText = (preference: ThemePreference): string => {
+    switch (preference) {
+      case 'system': return 'System Default';
+      case 'light': return 'Light Mode';
+      case 'dark': return 'Dark Mode';
+      default: return 'System Default';
+    }
+  };
+
+  const handleThemePress = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', '📱 System Default', '☀️ Light Mode', '🌙 Dark Mode'],
+          cancelButtonIndex: 0,
+          title: 'Choose Appearance',
+          message: 'Select your preferred theme',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) setThemePreference('system');
+          else if (buttonIndex === 2) setThemePreference('light');
+          else if (buttonIndex === 3) setThemePreference('dark');
+        }
+      );
+    } else {
+      // Android fallback using Alert
+      Alert.alert(
+        'Choose Appearance',
+        'Select your preferred theme',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: '📱 System Default', onPress: () => setThemePreference('system') },
+          { text: '☀️ Light Mode', onPress: () => setThemePreference('light') },
+          { text: '🌙 Dark Mode', onPress: () => setThemePreference('dark') },
+        ]
+      );
+    }
   };
 
   const colors = Colors[colorScheme ?? 'light'];
@@ -209,6 +250,16 @@ export default function SettingsScreen() {
 
         {renderCardSection('Preferences', (
           <>
+            {renderSettingItem(
+              'Appearance',
+              getThemeDisplayText(preference),
+              'paintpalette.fill',
+              handleThemePress,
+              true,
+              undefined,
+              false
+            )}
+            
             {renderSettingItem(
               'Language',
               'English',

@@ -14,8 +14,9 @@ import { Colors, Shadows, BorderRadius, Typography, Spacing } from '@/constants/
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LandmarkAnalysis, NearbyPlace } from '@/types';
 import { analyzeImage } from '@/services/aiService';
-import { saveLandmark, removeLandmark, isLandmarkSaved, addToScanHistory } from '@/services/storageService';
+import { saveLandmark, removeLandmark, isLandmarkSaved, addToScanHistory, saveCollection, removeCollection, isCollectionSaved } from '@/services/storageService';
 import { enrichNearbyPlaces, formatDistance, getPlaceTypeIcon } from '@/services/placesService';
+import { ScanningAnimation } from '@/components/ScanningAnimation';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -44,10 +45,12 @@ export default function ResultScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   
-  const { imageUri, savedLandmark, source = 'new' } = useLocalSearchParams<{ 
+  const { imageUri, savedLandmark, source = 'new', locationCoords, scanType = 'landmark' } = useLocalSearchParams<{ 
     imageUri?: string; 
     savedLandmark?: string;
     source?: 'new' | 'saved' | 'recent';
+    locationCoords?: string;
+    scanType?: 'landmark' | 'museum';
   }>();
 
   const [landmark, setLandmark] = useState<LandmarkAnalysis | null>(null);
@@ -88,7 +91,19 @@ export default function ResultScreen() {
       // 2. Yoksa ve resim varsa analiz et
       if (imageUri) {
         console.log('Starting Analysis...');
-        const analysis = await analyzeImage(imageUri);
+        
+        // Parse location coordinates if provided
+        let parsedLocation: { lat: number; lng: number } | undefined;
+        if (locationCoords) {
+          try {
+            parsedLocation = JSON.parse(locationCoords);
+            console.log('Using location context for AI analysis:', parsedLocation);
+          } catch (error) {
+            console.log('Failed to parse location coordinates:', error);
+          }
+        }
+        
+        const analysis = await analyzeImage(imageUri, parsedLocation, scanType as 'landmark' | 'museum');
         setLandmark(analysis);
         
         // Add to scan history (regardless of whether user saves to passport)
@@ -111,6 +126,12 @@ export default function ResultScreen() {
   };
 
   const enrichNearbyPlacesIfAvailable = async (data: LandmarkAnalysis) => {
+    // Skip nearby places entirely for museum pieces
+    if (data.scanType === 'museum') {
+      console.log('Skipping nearby places for museum item');
+      return;
+    }
+
     // Don't fetch new nearby places if we already have them (saved/recent landmarks)
     if (data.nearbyMustSeePlaces?.length > 0) {
       setNearbyPlaces(data.nearbyMustSeePlaces);
@@ -138,21 +159,41 @@ export default function ResultScreen() {
 
   const checkSavedStatus = async () => {
     if (!landmark) return;
-    const saved = await isLandmarkSaved(landmark.id);
-    setIsSaved(saved);
+    
+    // Check saved status based on scan type
+    if (landmark.scanType === 'museum') {
+      const saved = await isCollectionSaved(landmark.id);
+      setIsSaved(saved);
+    } else {
+      const saved = await isLandmarkSaved(landmark.id);
+      setIsSaved(saved);
+    }
   };
 
   const handleSave = async () => {
     if (!landmark) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
-    if (isSaved) {
-      await removeLandmark(landmark.id);
-      setIsSaved(false);
+    if (landmark.scanType === 'museum') {
+      // Museum items go to Collections
+      if (isSaved) {
+        await removeCollection(landmark.id);
+        setIsSaved(false);
+      } else {
+        await saveCollection(landmark);
+        setIsSaved(true);
+        Alert.alert('Saved', 'Added to your Collections.');
+      }
     } else {
-      await saveLandmark(landmark);
-      setIsSaved(true);
-      Alert.alert('Saved', 'Added to your Passport.');
+      // Landmarks go to Passport
+      if (isSaved) {
+        await removeLandmark(landmark.id);
+        setIsSaved(false);
+      } else {
+        await saveLandmark(landmark);
+        setIsSaved(true);
+        Alert.alert('Saved', 'Added to your Passport.');
+      }
     }
   };
 
@@ -252,7 +293,7 @@ export default function ResultScreen() {
 
     return (
       <Pressable 
-        style={[styles.nearbyCard, { backgroundColor: colors.card }]}
+        style={[styles.nearbyCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
         onPress={() => openMapsForPlace(item)}
         android_ripple={{ color: colors.primary + '20' }}
       >
@@ -314,14 +355,10 @@ export default function ResultScreen() {
   };
 
   if (loading) {
-    return (
+    return imageUri ? (
+      <ScanningAnimation imageUri={imageUri} scanType={scanType} />
+    ) : (
       <View style={[styles.container, { backgroundColor: '#000' }]}>
-        {imageUri && (
-          <View style={StyleSheet.absoluteFill}>
-            <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.4)' }]} />
-          </View>
-        )}
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color="#fff" />
           <Text style={styles.loadingText}>Identifying Landmark...</Text>
@@ -380,6 +417,14 @@ export default function ResultScreen() {
         {/* Scanned Photo - Full Width */}
         <View style={styles.imageContainer}>
           <Image source={{ uri: imageUri || landmark.imageUrl }} style={styles.image} contentFit="cover" />
+          {/* Confidence Badge Overlay */}
+          {landmark.accuracy && (
+            <View style={styles.imageConfidenceBadge}>
+              <ThemedText style={styles.imageConfidenceText}>
+                {Math.round(landmark.accuracy * 100)}%
+              </ThemedText>
+            </View>
+          )}
         </View>
 
         {/* Content */}
@@ -388,33 +433,47 @@ export default function ResultScreen() {
         <View style={styles.contentHeader}>
           <View style={styles.titleContainer}>
             <ThemedText style={[styles.title, { color: colors.textPrimary }]}>{landmark.name}</ThemedText>
-            {landmark.accuracy && (
-              <View style={[styles.confidenceBadge, { backgroundColor: colors.success }]}>
-                <ThemedText style={styles.confidenceText}>
-                  {Math.round(landmark.accuracy * 100)}% confident
-                </ThemedText>
-              </View>
-            )}
           </View>
           <View style={styles.locationRow}>
             <IconSymbol name="mappin.and.ellipse" size={14} color={colors.textSecondary} />
             <ThemedText style={[styles.locationText, { color: colors.textSecondary }]}>
-              {landmark.city && landmark.country 
-                ? `${landmark.city}, ${landmark.country}`
-                : landmark.location || landmark.country || 'Location not specified'
+              {landmark.scanType === 'museum' 
+                ? // Museum items: Show "Museum Name, City, Country" format
+                  landmark.location && landmark.city && landmark.country
+                    ? `${landmark.location}, ${landmark.city}, ${landmark.country}`
+                    : landmark.location && landmark.city
+                      ? `${landmark.location}, ${landmark.city}`
+                      : landmark.city && landmark.country
+                        ? `${landmark.city}, ${landmark.country}`
+                        : landmark.location || landmark.city || landmark.country || 'Location not specified'
+                : // Landmark items: Keep existing format
+                  landmark.city && landmark.country 
+                    ? `${landmark.city}, ${landmark.country}`
+                    : landmark.location || landmark.country || 'Location not specified'
               }
             </ThemedText>
           </View>
         </View>
 
         {/* Quick Facts Grid */}
-        {(landmark.yearBuilt || landmark.architecturalStyle || landmark.architect) && (
+        {(landmark.yearBuilt || landmark.architecturalStyle || landmark.architect || landmark.artist || landmark.medium || landmark.artMovement || landmark.artStyle || landmark.historicalEra) && (
           <View style={styles.section}>
             <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Facts</ThemedText>
             <View style={styles.factsGrid}>
-              {renderInfoRow('calendar', 'Built', landmark.yearBuilt)}
-              {renderInfoRow('person.fill', 'Architect', landmark.architect)}
-              {renderInfoRow('building.columns.fill', 'Architecture', landmark.architecturalStyle)}
+              {landmark.scanType === 'museum' ? (
+                <>
+                  {renderInfoRow('person.fill', 'Artist', landmark.artist)}
+                  {renderInfoRow('calendar', 'Era', landmark.historicalEra)}
+                  {renderInfoRow('paintbrush.fill', 'Style', landmark.artStyle || landmark.artMovement)}
+                  {renderInfoRow('hammer.fill', 'Medium', landmark.medium)}
+                </>
+              ) : (
+                <>
+                  {renderInfoRow('calendar', 'Built', landmark.yearBuilt)}
+                  {renderInfoRow('person.fill', 'Architect', landmark.architect)}
+                  {renderInfoRow('building.columns.fill', 'Architecture', landmark.architecturalStyle)}
+                </>
+              )}
             </View>
           </View>
         )}
@@ -442,11 +501,88 @@ export default function ResultScreen() {
         {/* Cultural Significance */}
         {landmark.culturalSignificance && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Cultural Significance</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              {landmark.scanType === 'museum' ? 'Artistic Significance' : 'Cultural Significance'}
+            </ThemedText>
             <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
               {landmark.culturalSignificance}
             </ThemedText>
           </View>
+        )}
+
+        {/* Art Guide sections */}
+        {landmark.scanType === 'museum' && (
+          <>
+            {/* Estimated Value */}
+            {landmark.estimatedValue && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Estimated Value</ThemedText>
+                <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                  {landmark.estimatedValue}
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Art Style Analysis */}
+            {landmark.artStyle && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Art Style</ThemedText>
+                <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                  {landmark.artStyle}
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Historical Era Context */}
+            {landmark.historicalEra && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Historical Era</ThemedText>
+                <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                  {landmark.historicalEra}
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Expert Explanation */}
+            {landmark.museumExplanation && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Expert Analysis</ThemedText>
+                <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                  {landmark.museumExplanation}
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Historical Context */}
+            {landmark.historicalContext && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Historical Context</ThemedText>
+                <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                  {landmark.historicalContext}
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Technique */}
+            {landmark.technique && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Technique</ThemedText>
+                <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                  {landmark.technique}
+                </ThemedText>
+              </View>
+            )}
+
+            {/* Dimensions */}
+            {landmark.dimensions && (
+              <View style={styles.section}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Dimensions</ThemedText>
+                <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
+                  {landmark.dimensions}
+                </ThemedText>
+              </View>
+            )}
+          </>
         )}
 
         {/* Fun Facts */}
@@ -510,8 +646,8 @@ export default function ResultScreen() {
           </View>
         )}
 
-        {/* Nearby Places */}
-        {(nearbyPlaces.length > 0 || enrichingNearby) && (
+        {/* Nearby Places - Only for landmarks, not museum pieces */}
+        {landmark.scanType !== 'museum' && (nearbyPlaces.length > 0 || enrichingNearby) && (
           <View style={styles.section}>
             <View style={styles.sectionHeaderWithToggle}>
               <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Nearby Gems</ThemedText>
@@ -600,7 +736,17 @@ export default function ResultScreen() {
       <View style={[styles.bottomActionBar, { paddingBottom: insets.bottom, backgroundColor: colors.background }]}>
         <Pressable 
           style={[styles.circularButton, { backgroundColor: colors.backgroundSecondary }]}
-          onPress={() => router.push('/camera')}
+          onPress={() => {
+            // Navigate to camera with appropriate mode based on current scan type
+            if (landmark?.scanType === 'museum') {
+              router.push({
+                pathname: '/camera',
+                params: { mode: 'museum' }
+              });
+            } else {
+              router.push('/camera');
+            }
+          }}
         >
           <IconSymbol name="camera.fill" size={24} color={colors.textPrimary} />
         </Pressable>
@@ -611,7 +757,10 @@ export default function ResultScreen() {
         >
           <IconSymbol name={isSaved ? "book.fill" : "book"} size={20} color="#FFFFFF" />
           <ThemedText style={[styles.bottomButtonText, { color: '#FFFFFF' }]}>
-            {source === 'saved' || isSaved ? 'Remove from My Passport' : 'Add to My Passport'}
+            {landmark.scanType === 'museum' 
+              ? (source === 'saved' || isSaved ? 'Remove from Collections' : 'Add to Collections')
+              : (source === 'saved' || isSaved ? 'Remove from My Passport' : 'Add to My Passport')
+            }
           </ThemedText>
         </Pressable>
       </View>
@@ -672,10 +821,25 @@ const styles = StyleSheet.create({
   imageContainer: { 
     height: screenHeight * 0.3, 
     width: '100%',
+    position: 'relative',
   },
   image: { 
     width: '100%', 
     height: '100%' 
+  },
+  imageConfidenceBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  imageConfidenceText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 
   // Content Section  
@@ -847,8 +1011,8 @@ const styles = StyleSheet.create({
   nearbyCard: { 
     width: 240, 
     borderRadius: BorderRadius.lg,
+    borderWidth: 1,
     overflow: 'hidden',
-    ...Shadows.medium,
     backgroundColor: '#fff'
   },
   nearbyImage: { 

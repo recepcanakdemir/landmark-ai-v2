@@ -18,7 +18,7 @@ interface GeminiProxyPayload {
 /**
  * Analyze image using Gemini AI via Supabase Edge Function
  */
-export async function analyzeImage(imageUri: string): Promise<LandmarkAnalysis> {
+export async function analyzeImage(imageUri: string, locationCoords?: { lat: number; lng: number }, scanType: 'landmark' | 'museum' = 'landmark'): Promise<LandmarkAnalysis> {
   try {
     console.log('Starting AI analysis for image:', imageUri);
     
@@ -31,7 +31,7 @@ export async function analyzeImage(imageUri: string): Promise<LandmarkAnalysis> 
         {
           parts: [
             {
-              text: buildAnalysisPrompt()
+              text: buildAnalysisPrompt(locationCoords, scanType)
             },
             {
               inlineData: {
@@ -68,7 +68,7 @@ export async function analyzeImage(imageUri: string): Promise<LandmarkAnalysis> 
     console.log('Raw AI response:', JSON.stringify(data, null, 2));
     
     // Step 4: Parse and validate the response
-    const landmarkData = parseGeminiResponse(data);
+    const landmarkData = parseGeminiResponse(data, scanType);
     
     // Step 5: Add metadata
     const analysis: LandmarkAnalysis = {
@@ -76,7 +76,8 @@ export async function analyzeImage(imageUri: string): Promise<LandmarkAnalysis> 
       id: `analysis_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       imageUrl: imageUri,
       analyzedAt: new Date().toISOString(),
-      accuracy: landmarkData.confidence || 0.85 // Use AI confidence or fallback
+      accuracy: landmarkData.confidence || 0.85, // Use AI confidence or fallback
+      scanType: scanType // Ensure scanType is preserved
     };
     
     console.log('Successfully analyzed landmark:', analysis.name);
@@ -120,8 +121,16 @@ async function convertImageToBase64(imageUri: string): Promise<string> {
 /**
  * Build the analysis prompt for Gemini
  */
-function buildAnalysisPrompt(): string {
-  return `Analyze this landmark image and return ONLY a valid JSON object with no markdown formatting or code blocks.
+function buildAnalysisPrompt(locationCoords?: { lat: number; lng: number }, scanType: 'landmark' | 'museum' = 'landmark'): string {
+  const locationContext = locationCoords 
+    ? `\n\nCONTEXT: The image was captured at GPS coordinates: Latitude ${locationCoords.lat}, Longitude ${locationCoords.lng}. You MUST use this location data to filter your identification results and prioritize ${scanType === 'museum' ? 'artworks and museum pieces' : 'landmarks'} geographically located near these coordinates.`
+    : '';
+
+  if (scanType === 'museum') {
+    return buildMuseumAnalysisPrompt(locationContext);
+  }
+
+  return `Analyze this landmark image and return ONLY a valid JSON object with no markdown formatting or code blocks.${locationContext}
 
 The JSON must have this exact structure:
 {
@@ -199,9 +208,100 @@ Analyze the image now:`;
 }
 
 /**
+ * Build specialized analysis prompt for museum pieces and artworks
+ */
+function buildMuseumAnalysisPrompt(locationContext: string): string {
+  return `You are an EXPERT ART GUIDE and MUSEUM CURATOR. Analyze this artwork, sculpture, historical artifact, or museum piece and return ONLY a valid JSON object with no markdown formatting or code blocks.
+
+This is a specialized ART GUIDE analysis for: Paintings, Sculptures, Murals, Historical Artifacts (weapons, uniforms, tools), Museum Machines, Ancient Artifacts, and Cultural Objects.
+
+ACT LIKE A KNOWLEDGEABLE MUSEUM GUIDE who can explain any piece to visitors with expert knowledge about art history, techniques, historical context, and cultural significance.
+
+The JSON must have this exact structure:
+{
+  "name": "Artwork/Artifact name",
+  "artist": "Artist name or 'Unknown Artist' for historical artifacts",
+  "estimatedValue": "€2-5 million" or "Priceless museum collection" or "Not for sale - Historical artifact" or "Public monument - Not applicable",
+  "artStyle": "Cubism / Realism / Baroque / Art Nouveau / Military Historic / Ancient Craftsmanship",
+  "historicalEra": "Renaissance Period (1400-1600)" or "WWII Era" or "Victorian Period",
+  "medium": "Oil on canvas / Bronze sculpture / Historical steel / Ancient pottery",
+  "technique": "Impasto brushwork / Lost-wax casting / Hand-forged metalwork / Traditional pottery",
+  "museumExplanation": "Detailed expert explanation of the piece's artistic/technical significance, composition, symbolism, and craftsmanship (3-4 sentences like a museum guide would explain)",
+  "historicalContext": "Historical period background and significance of this piece in its era (3-4 sentences)",
+  "description": "Clear description of what visitors see when looking at this piece",
+  "history": "Creation story and historical journey of this specific piece",
+  "yearBuilt": 1889,
+  "location": "Museum name or monument location where this piece is housed/displayed",
+  "city": "City where the piece is located",
+  "country": "Country where the piece is located",
+  "funFacts": [
+    "Fascinating artistic or historical fact 1",
+    "Intriguing technical or cultural fact 2", 
+    "Surprising historical detail 3"
+  ],
+  "faq": [
+    {
+      "question": "What makes this piece historically significant?",
+      "answer": "Historical importance and lasting impact explanation"
+    },
+    {
+      "question": "What technique or style is this?",
+      "answer": "Technical and artistic style analysis"
+    },
+    {
+      "question": "When and why was this created?",
+      "answer": "Creation context and historical purpose"
+    }
+  ],
+  "culturalSignificance": "Why this piece matters in art history/cultural heritage (focus on artistic/historical importance)",
+  "architecturalStyle": "Artistic movement or historical period style",
+  "confidence": 0.95,
+  "scanType": "museum",
+  "dimensions": "Height x Width or object dimensions if determinable"
+}
+
+EXPERT GUIDE REQUIREMENTS:
+- Analyze like a museum expert who can identify art movements, techniques, and historical periods
+- For ARTWORKS: Focus on artist, style, technique, art movement, value, composition analysis
+- For HISTORICAL ARTIFACTS: Focus on period, craftsmanship, military/cultural purpose, historical significance
+- For SCULPTURES: Focus on material, technique, artistic movement, symbolic meaning
+- For ANCIENT PIECES: Focus on culture, period, craftsmanship, historical importance
+- LOCATION IDENTIFICATION: Identify WHERE this piece is typically housed or displayed
+  * Famous artworks: "Louvre Museum" / "Metropolitan Museum of Art" / "Uffizi Gallery"
+  * Public sculptures: "Central Park, New York" / "Trafalgar Square, London"  
+  * Monument art: "Sistine Chapel, Vatican" / "Notre-Dame Cathedral, Paris"
+  * Historical artifacts: "British Museum" / "Smithsonian Institution"
+- Provide educational content that helps visitors understand and appreciate the piece
+- estimatedValue: Use nuanced assessment based on ownership and market status:
+  * Market artworks: "€2-5 million" / "$10-20 million"
+  * Museum collections: "Priceless museum collection" / "Museum permanent collection"
+  * Historical artifacts: "Not for sale - Historical artifact"
+  * Public monuments: "Public monument - Not applicable"
+- artStyle: Be specific (not just "Renaissance" but "High Renaissance" or "Venetian Renaissance")
+- historicalEra: Provide specific periods with date ranges when possible
+- museumExplanation: Write as if personally guiding a visitor through detailed analysis
+- location, city, country: Required fields for context - identify the museum, gallery, or public location where visitors can see this piece
+
+PIECE TYPES TO EXCEL AT:
+✓ Famous paintings (Van Gogh, Picasso, Da Vinci, etc.)
+✓ Classical and modern sculptures  
+✓ Historical weapons and armor
+✓ Military uniforms and regalia
+✓ Ancient pottery and artifacts
+✓ Historical machines and tools
+✓ Murals and frescoes
+✓ Cultural and religious artifacts
+✓ Archaeological finds
+
+Be the expert guide that makes any museum visit educational and fascinating!
+
+Analyze the museum piece now:`;
+}
+
+/**
  * Parse and validate Gemini response
  */
-function parseGeminiResponse(response: any): Partial<LandmarkAnalysis> {
+function parseGeminiResponse(response: any, scanType: 'landmark' | 'museum' = 'landmark'): Partial<LandmarkAnalysis> {
   try {
     // Handle different possible response structures
     let jsonText: string;
@@ -256,16 +356,20 @@ function parseGeminiResponse(response: any): Partial<LandmarkAnalysis> {
     
     // Return fallback data if parsing fails
     return {
-      name: 'Unknown Landmark',
-      description: 'This landmark could not be identified by our AI system.',
+      name: scanType === 'museum' ? 'Unknown Artwork' : 'Unknown Landmark',
+      description: scanType === 'museum' 
+        ? 'This artwork or museum piece could not be identified by our AI system.'
+        : 'This landmark could not be identified by our AI system.',
       history: 'Unable to retrieve historical information for this location.',
       architect: 'Unknown',
       yearBuilt: undefined,
-      funFacts: ['This landmark requires manual identification.'],
+      funFacts: [scanType === 'museum' ? 'This artwork requires manual identification.' : 'This landmark requires manual identification.'],
       faq: [
         {
-          question: 'What is this landmark?',
-          answer: 'This landmark could not be automatically identified. Please try scanning a clearer image or search manually.'
+          question: scanType === 'museum' ? 'What is this artwork?' : 'What is this landmark?',
+          answer: scanType === 'museum' 
+            ? 'This artwork could not be automatically identified. Please try scanning a clearer image or search manually.'
+            : 'This landmark could not be automatically identified. Please try scanning a clearer image or search manually.'
         }
       ],
       culturalSignificance: 'Unknown cultural significance.',
@@ -273,8 +377,9 @@ function parseGeminiResponse(response: any): Partial<LandmarkAnalysis> {
       visitingTips: ['Consider researching this location manually.'],
       city: 'Unknown',
       country: 'Unknown',
-      coordinates: null,
-      confidence: 0.10 // Low confidence for fallback data
+      coordinates: undefined,
+      confidence: 0.10, // Low confidence for fallback data
+      scanType: scanType
     };
   }
 }

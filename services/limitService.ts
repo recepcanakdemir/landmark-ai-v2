@@ -1,35 +1,208 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import * as Application from 'expo-application';
+import { Platform } from 'react-native';
 import { supabase } from './supabase';
-import { LimitCheckResult, SubscriptionStatus } from '@/types';
+import { LimitCheckResult, SubscriptionStatus, TrialState, UserAccessState, UserAccessType } from '@/types';
 
 const DEVICE_ID_KEY = 'landmark_device_id';
+const TRIAL_STATE_KEY = 'landmark_trial_state';
 const FREE_DAILY_LIMIT = 3;
+const TRIAL_DURATION_DAYS = 3;
 
 /**
- * Generate or retrieve device ID for tracking usage
+ * Generate or retrieve persistent device ID for tracking usage
+ * Uses hardware-based IDs to prevent uninstall/reinstall loophole
  */
 async function getDeviceId(): Promise<string> {
   try {
+    // First, check if we already have a stored device ID
     let deviceId = await SecureStore.getItemAsync(DEVICE_ID_KEY);
     
     if (!deviceId) {
-      // Generate new device ID
-      deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      await SecureStore.setItemAsync(DEVICE_ID_KEY, deviceId);
+      // Try to get hardware-based ID
+      try {
+        let hardwareId: string | null = null;
+        
+        if (Platform.OS === 'ios') {
+          // iOS: Use Vendor ID (persists until all apps from vendor are deleted)
+          hardwareId = await Application.getIosIdForVendorAsync();
+          if (hardwareId) {
+            deviceId = `ios_vendor_${hardwareId}`;
+          }
+        } else if (Platform.OS === 'android') {
+          // Android: Use Android ID (persists until factory reset)
+          hardwareId = Application.getAndroidId();
+          if (hardwareId) {
+            deviceId = `android_id_${hardwareId}`;
+          }
+        }
+        
+        // Fallback to random ID if hardware ID fails or returns null
+        if (!deviceId) {
+          console.warn('Hardware ID not available, falling back to random ID');
+          deviceId = `device_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+        }
+        
+        // Store the device ID for future use
+        await SecureStore.setItemAsync(DEVICE_ID_KEY, deviceId);
+        console.log('Generated new device ID:', deviceId.substring(0, 20) + '...');
+        
+      } catch (hardwareError) {
+        console.error('Error getting hardware ID:', hardwareError);
+        // Final fallback to random ID
+        deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        await SecureStore.setItemAsync(DEVICE_ID_KEY, deviceId);
+      }
     }
     
     return deviceId;
   } catch (error) {
     console.error('Error managing device ID:', error);
-    // Fallback to AsyncStorage if SecureStore fails
-    let deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
-    if (!deviceId) {
-      deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
+    
+    // Fallback to AsyncStorage if SecureStore fails completely
+    try {
+      let deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
+      if (!deviceId) {
+        // Try hardware ID as fallback
+        try {
+          let hardwareId: string | null = null;
+          
+          if (Platform.OS === 'ios') {
+            hardwareId = await Application.getIosIdForVendorAsync();
+            if (hardwareId) {
+              deviceId = `ios_vendor_${hardwareId}`;
+            }
+          } else if (Platform.OS === 'android') {
+            hardwareId = Application.getAndroidId();
+            if (hardwareId) {
+              deviceId = `android_id_${hardwareId}`;
+            }
+          }
+          
+          if (!deviceId) {
+            deviceId = `device_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+          }
+        } catch (hardwareError) {
+          deviceId = `device_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+        }
+        
+        await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
+      }
+      return deviceId;
+    } catch (asyncError) {
+      console.error('All storage methods failed, using temporary ID:', asyncError);
+      // Last resort: temporary ID (will reset on app restart)
+      return `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
-    return deviceId;
   }
+}
+
+/**
+ * Get current trial state from storage
+ */
+async function getTrialState(): Promise<TrialState> {
+  try {
+    const stored = await AsyncStorage.getItem(TRIAL_STATE_KEY);
+    if (!stored) {
+      return {
+        isActive: false,
+        startDate: '',
+        endDate: '',
+        hasUsedTrial: false
+      };
+    }
+    return JSON.parse(stored);
+  } catch (error) {
+    console.error('Error getting trial state:', error);
+    return {
+      isActive: false,
+      startDate: '',
+      endDate: '',
+      hasUsedTrial: false
+    };
+  }
+}
+
+/**
+ * Check if trial is currently active (not expired)
+ */
+async function isTrialActive(): Promise<boolean> {
+  const trialState = await getTrialState();
+  if (!trialState.isActive || !trialState.endDate) {
+    return false;
+  }
+  
+  const now = new Date();
+  const endDate = new Date(trialState.endDate);
+  return now < endDate;
+}
+
+/**
+ * Start a new trial period
+ */
+async function startTrial(): Promise<TrialState> {
+  try {
+    const currentState = await getTrialState();
+    
+    // Prevent multiple trials per device
+    if (currentState.hasUsedTrial) {
+      throw new Error('Trial has already been used on this device');
+    }
+    
+    const startDate = new Date();
+    const endDate = new Date(startDate.getTime() + (TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000));
+    
+    const newTrialState: TrialState = {
+      isActive: true,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+      hasUsedTrial: true
+    };
+    
+    await AsyncStorage.setItem(TRIAL_STATE_KEY, JSON.stringify(newTrialState));
+    console.log('Trial started:', newTrialState);
+    
+    return newTrialState;
+  } catch (error) {
+    console.error('Error starting trial:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get comprehensive user access state
+ */
+async function getUserAccessState(): Promise<UserAccessState> {
+  // Check premium status first
+  const subscriptionStatus = await checkPremiumStatus();
+  if (subscriptionStatus.isPremium) {
+    return {
+      type: 'premium',
+      unlimited: true
+    };
+  }
+  
+  // Check trial status
+  const trialActive = await isTrialActive();
+  if (trialActive) {
+    const trialState = await getTrialState();
+    return {
+      type: 'trial',
+      unlimited: true,
+      trialEndDate: trialState.endDate
+    };
+  }
+  
+  // Default to free tier
+  const deviceId = await getDeviceId();
+  const limitResult = await checkSupabaseLimit(deviceId, false);
+  
+  return {
+    type: 'free',
+    unlimited: false,
+    scansRemaining: Math.max(0, limitResult.scansAllowed - limitResult.scansUsed)
+  };
 }
 
 /**
@@ -173,29 +346,53 @@ function getNextResetTime(): string {
  */
 export async function checkScanLimit(performScan: boolean = false): Promise<LimitCheckResult> {
   try {
-    // Step 1: Check premium status first
-    const subscriptionStatus = await checkPremiumStatus();
+    // Step 1: Get user access state (premium, trial, or free)
+    const accessState = await getUserAccessState();
     
-    if (subscriptionStatus.isPremium) {
+    // Step 2: Handle premium users
+    if (accessState.type === 'premium') {
       return {
         allowed: true,
         remaining: -1, // Unlimited
         isPremium: true,
+        isTrialActive: false,
         scansUsed: 0,
         scansAllowed: -1
       };
     }
     
-    // Step 2: For free users, check daily limits
+    // Step 3: Handle trial users (unlimited scans, bypass Supabase)
+    if (accessState.type === 'trial') {
+      return {
+        allowed: true,
+        remaining: -1, // Unlimited during trial
+        isPremium: false,
+        isTrialActive: true,
+        scansUsed: 0,
+        scansAllowed: -1,
+        trialEndDate: accessState.trialEndDate
+      };
+    }
+    
+    // Step 4: Handle free tier users (call Supabase for limit checking)
     const deviceId = await getDeviceId();
     const limitResult = await checkSupabaseLimit(deviceId, performScan);
     
     const allowed = performScan ? limitResult.canScan : limitResult.scansUsed < limitResult.scansAllowed;
     
+    const calculatedRemaining = limitResult.scansAllowed - limitResult.scansUsed;
+    const remaining = Math.max(0, calculatedRemaining);
+    
+    // Log potential negative values for debugging
+    if (calculatedRemaining < 0) {
+      console.warn(`Negative remaining detected: ${calculatedRemaining} (used: ${limitResult.scansUsed}, allowed: ${limitResult.scansAllowed})`);
+    }
+    
     return {
       allowed,
-      remaining: limitResult.scansAllowed - limitResult.scansUsed,
+      remaining,
       isPremium: false,
+      isTrialActive: false,
       scansUsed: limitResult.scansUsed,
       scansAllowed: limitResult.scansAllowed,
       resetTime: getNextResetTime()
@@ -207,8 +404,9 @@ export async function checkScanLimit(performScan: boolean = false): Promise<Limi
     // Return safe defaults on error
     return {
       allowed: true,
-      remaining: FREE_DAILY_LIMIT,
+      remaining: Math.max(0, FREE_DAILY_LIMIT),
       isPremium: false,
+      isTrialActive: false,
       scansUsed: 0,
       scansAllowed: FREE_DAILY_LIMIT,
       resetTime: getNextResetTime()
@@ -274,3 +472,6 @@ export async function refreshSubscriptionStatus(): Promise<SubscriptionStatus> {
   await setCachedSubscriptionStatus(status);
   return status;
 }
+
+// Export trial management functions
+export { startTrial, isTrialActive, getTrialState, getUserAccessState };

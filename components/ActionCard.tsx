@@ -37,9 +37,9 @@ export const ActionCard: React.FC<ActionCardProps> = ({
         styles.card,
         {
           backgroundColor: backgroundColor || colors.card,
+          borderColor: colors.cardBorder,
           opacity: disabled ? 0.6 : pressed ? 0.95 : 1.0,
         },
-        Shadows.medium,
         style,
       ]}
       onPress={onPress}
@@ -90,6 +90,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     borderRadius: BorderRadius.lg,
+    borderWidth: 1,
     marginBottom: Spacing.md,
   },
   content: {

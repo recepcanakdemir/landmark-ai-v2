@@ -108,27 +108,30 @@ export default function PassportScreen() {
     }
   };
 
-  const renderLandmarkCard = ({ item }: { item: LandmarkAnalysis }) => {
+  const renderLandmarkCard = ({ item, index }: { item: LandmarkAnalysis; index: number }) => {
     // Safety check to prevent rendering invalid items
     if (!item || !item.id || !item.name) {
       return null;
     }
 
     return (
-      <LandmarkCard
-        id={item.id}
-        name={item.name}
-        location={item.location || item.country || 'Unknown location'}
-        imageUrl={item.imageUrl}
-        dateAdded={new Date(item.analyzedAt)}
-        confidence={item.accuracy ? Math.round(item.accuracy * 100) : undefined}
-        tags={['Visited', 'Saved']}
-        onPress={() => handleLandmarkPress(item)}
-        onDelete={() => handleDeleteLandmark(item)}
-        onFavorite={() => handleLandmarkPress(item)} // For now, just navigate
-        isFavorite={true}
-        size="medium"
-      />
+      <View style={styles.cardWrapper}>
+        <LandmarkCard
+          id={item.id}
+          name={item.name}
+          location={item.location || item.country || 'Unknown location'}
+          imageUrl={item.imageUrl}
+          dateAdded={new Date(item.analyzedAt)}
+          confidence={item.accuracy ? Math.round(item.accuracy * 100) : undefined}
+          tags={item.scanType === 'museum' ? ['Museum', 'Saved'] : ['Landmark', 'Saved']}
+          onPress={() => handleLandmarkPress(item)}
+          onDelete={() => handleDeleteLandmark(item)}
+          onFavorite={() => handleLandmarkPress(item)} // For now, just navigate
+          isFavorite={true}
+          size="small"
+          style={styles.gridCard}
+        />
+      </View>
     );
   };
 
@@ -181,6 +184,8 @@ export default function PassportScreen() {
         style={styles.listContainer}
         contentContainerStyle={landmarks.length > 0 ? styles.listContent : styles.emptyListContent}
         showsVerticalScrollIndicator={false}
+        numColumns={2}
+        columnWrapperStyle={landmarks.length > 0 ? styles.row : undefined}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -189,7 +194,6 @@ export default function PassportScreen() {
           />
         }
         ListEmptyComponent={!loading ? renderEmptyState : null}
-        ItemSeparatorComponent={() => <View style={styles.cardSeparator} />}
       />
     </View>
   );
@@ -205,15 +209,25 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    paddingHorizontal: 20,
     paddingBottom: 100,
   },
   emptyListContent: {
     paddingBottom: 100,
     flex: 1,
   },
-  cardSeparator: {
-    height: Spacing.md,
+  
+  // GRID LAYOUT
+  row: {
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: Spacing.md,
+  },
+  cardWrapper: {
+    flex: 1,
+    maxWidth: '48%', // Ensures proper spacing between cards
+  },
+  gridCard: {
+    width: '100%',
   },
 
   // EMPTY STATE

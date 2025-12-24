@@ -28,6 +28,19 @@ export interface LandmarkAnalysis {
   analyzedAt: string; // ISO timestamp
   accuracy?: number; // AI confidence score 0-1
   confidence?: number; // AI confidence score from response (temporary parsing field)
+  scanType?: 'landmark' | 'museum'; // Type of scan - defaults to 'landmark' for backward compatibility
+  // Museum-specific fields (optional, used when scanType === 'museum')
+  artist?: string; // Artist name for artworks
+  medium?: string; // Art medium (oil on canvas, bronze, etc.)
+  artMovement?: string; // Art movement (Renaissance, Impressionism, etc.)
+  technique?: string; // Artistic technique used
+  dimensions?: string; // Artwork dimensions
+  // Art guide specific fields
+  estimatedValue?: string; // Estimated worth or "Priceless" for historical pieces
+  artStyle?: string; // Detailed art style (Cubism, Realism, Art Nouveau, etc.)
+  historicalEra?: string; // Time period (Renaissance Period, Victorian Era, etc.)
+  museumExplanation?: string; // Deep artistic/technical analysis for museum visitors
+  historicalContext?: string; // Historical significance and period context
 }
 
 export interface NearbyPlace {
@@ -80,9 +93,27 @@ export interface LimitCheckResult {
   allowed: boolean;
   remaining: number;
   isPremium: boolean;
+  isTrialActive: boolean;
   scansUsed: number;
   scansAllowed: number;
   resetTime?: string; // Next reset timestamp
+  trialEndDate?: string; // Trial expiration timestamp
+}
+
+export interface TrialState {
+  isActive: boolean;
+  startDate: string; // ISO timestamp
+  endDate: string;   // ISO timestamp
+  hasUsedTrial: boolean; // Prevent multiple trials per device
+}
+
+export type UserAccessType = 'premium' | 'trial' | 'free';
+
+export interface UserAccessState {
+  type: UserAccessType;
+  unlimited: boolean;
+  scansRemaining?: number;
+  trialEndDate?: string;
 }
 
 export interface ChatMessage {
@@ -151,8 +182,14 @@ export interface ImageUpload {
 // Navigation types
 export type RootStackParamList = {
   '(tabs)': undefined;
-  camera: undefined;
-  result: { landmarkId: string };
+  camera: { mode?: 'landmark' | 'museum' };
+  result: { 
+    landmarkId?: string; 
+    imageUri?: string; 
+    source?: 'new' | 'saved' | 'recent';
+    locationCoords?: string;
+    scanType?: 'landmark' | 'museum';
+  };
   chat: { landmarkId: string; landmarkName: string };
   paywall: { source: 'scan_limit' | 'chat_feature' | 'settings' };
   onboarding: undefined;

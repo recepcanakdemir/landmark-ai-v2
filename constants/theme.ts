@@ -11,58 +11,58 @@ const sunsetOrange = '#FF5A5F';    // Sunset Orange - Accent
 
 export const Colors = {
   light: {
-    // Core Colors
-    text: '#1A1A1A',           // Dark Slate - Primary text
-    background: '#F5F7FA',     // Off-white/Light Gray - App background
+    // Core Colors - Premium iOS-style palette
+    text: '#1D1D1F',           // Apple's near-black - Primary text
+    background: '#f9f9f9',     // iOS systemGray6 - App background
     surface: '#FFFFFF',        // Pure White - Cards and surfaces
     
     // Brand Colors
     primary: travelBlue,       // Modern Travel Blue - Main actions
     tint: travelBlue,          // Modern Travel Blue - Active states
     
-    // Text Hierarchy
-    textPrimary: '#1A1A1A',    // Dark Slate - Headings
-    textSecondary: '#666666',   // Medium Gray - Body text
-    textTertiary: '#999999',    // Light Gray - Supporting text
+    // Text Hierarchy - Enhanced contrast
+    textPrimary: '#1D1D1F',    // Apple's primary text color
+    textSecondary: '#686868',   // Improved contrast medium gray
+    textTertiary: '#8E8E93',    // iOS systemGray - Supporting text
     
     // UI Elements
-    icon: '#666666',           // Medium Gray - Default icons
+    icon: '#686868',           // Medium Gray - Default icons
     iconActive: travelBlue,    // Blue - Active icons
-    tabIconDefault: '#999999', // Light Gray - Inactive tabs
+    tabIconDefault: '#8E8E93', // iOS gray - Inactive tabs
     tabIconSelected: travelBlue,
     
-    // Surfaces & Borders
+    // Surfaces & Borders - Premium feel
     card: '#FFFFFF',           // Pure White - Cards
-    cardBorder: '#E8E8E8',     // Light Border
-    cardShadow: '#000000',     // Shadow color
+    cardBorder: '#E5E5EA',     // iOS separator color
+    cardShadow: '#000000',     // Enhanced shadow
     
-    // Semantic Colors
-    success: '#00C851',        // Botanical Green - Success
-    warning: '#FF8A00',        // Orange - Warnings
-    error: '#FF3547',          // Red - Errors
-    info: '#17A2B8',           // Blue - Information
+    // Semantic Colors - Refined
+    success: '#34C759',        // iOS systemGreen - Success
+    warning: '#FF9500',        // iOS systemOrange - Warnings  
+    error: '#FF3B30',          // iOS systemRed - Errors
+    info: '#007AFF',           // iOS systemBlue - Information
     
     // Travel & Landmark Specific
     accentBlue: '#2563EB',     // Deeper blue for accents
     sunsetOrange: sunsetOrange, // Orange for highlights
-    explorerGold: '#F59E0B',   // Gold for premium features
+    explorerGold: '#FF9500',   // iOS orange for premium features
     
     // Interaction States
     buttonPrimary: travelBlue,
-    buttonSecondary: '#F5F7FA',
-    buttonDisabled: '#E0E0E0',
+    buttonSecondary: '#F2F2F7',
+    buttonDisabled: '#E5E5EA',
     ripple: 'rgba(0, 122, 255, 0.12)', // 12% opacity blue
     
-    // Backgrounds
-    backgroundSecondary: '#FAFBFC',
-    backgroundTertiary: '#F0F0F0',
+    // Backgrounds - Layered depth
+    backgroundSecondary: '#FAFAFA',  // Subtle variation
+    backgroundTertiary: '#F0F0F0',   // More pronounced
     overlay: 'rgba(0, 0, 0, 0.4)',
     
     // Legacy compatibility
-    premium: '#FF8A00',
-    secondary: '#F5F7FA',
-    tertiary: '#999999',
-    chatBackground: '#F5F7FA',
+    premium: '#FF9500',        // iOS orange
+    secondary: '#F2F2F7',
+    tertiary: '#8E8E93',
+    chatBackground: '#F2F2F7',
   },
   dark: {
     // Core Colors
@@ -120,7 +120,7 @@ export const Colors = {
   },
 };
 
-// Shadow system for consistent depth
+// Shadow system for consistent depth - Enhanced for light mode visibility
 export const Shadows = {
   small: {
     shadowColor: '#000000',
@@ -128,7 +128,7 @@ export const Shadows = {
       width: 0,
       height: 1,
     },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.12,  // Increased for better light mode visibility
     shadowRadius: 3,
     elevation: 2,
   },
@@ -138,7 +138,7 @@ export const Shadows = {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.16,  // Increased for better light mode visibility
     shadowRadius: 6,
     elevation: 4,
   },
@@ -148,7 +148,7 @@ export const Shadows = {
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.20,  // Increased for premium card feel
     shadowRadius: 12,
     elevation: 8,
   },
@@ -158,7 +158,7 @@ export const Shadows = {
       width: 0,
       height: 8,
     },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,  // Strong shadow for floating elements
     shadowRadius: 20,
     elevation: 12,
   },

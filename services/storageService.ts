@@ -6,7 +6,8 @@ import { LandmarkAnalysis } from '@/types';
  * Handles data migration from Plant identifier to Landmark format
  */
 
-const STORAGE_KEY = 'saved_landmarks';
+const PASSPORT_KEY = 'saved_landmarks'; // For landmarks only
+const COLLECTIONS_KEY = 'saved_collections'; // For museum items only
 const SCAN_HISTORY_KEY = 'scan_history'; // For recent scans/analysis history
 const LEGACY_STORAGE_KEY = 'saved_plants'; // For plant->landmark migration
 const MAX_SCAN_HISTORY = 15; // Maximum number of recent scans to keep
@@ -164,7 +165,7 @@ async function migrateLegacyData(): Promise<SavedLandmarkMeta[]> {
       console.log(`Migrated ${migratedLandmarks.length} plants to landmarks`);
       
       // Save migrated data to new format
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(migratedLandmarks));
+      await AsyncStorage.setItem(PASSPORT_KEY, JSON.stringify(migratedLandmarks));
       
       // Remove legacy data
       await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
@@ -185,7 +186,7 @@ async function validateAndCleanStorage(): Promise<SavedLandmarkMeta[]> {
   try {
     console.log('Validating and cleaning storage data...');
     
-    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const stored = await AsyncStorage.getItem(PASSPORT_KEY);
     let rawData: any[] = [];
     
     if (stored) {
@@ -210,7 +211,7 @@ async function validateAndCleanStorage(): Promise<SavedLandmarkMeta[]> {
     
     // Save cleaned data back to storage
     if (rawData.length !== cleanedData.length && cleanedData.length >= 0) {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleanedData));
+      await AsyncStorage.setItem(PASSPORT_KEY, JSON.stringify(cleanedData));
       console.log('Saved cleaned data back to storage');
     }
     
@@ -260,7 +261,7 @@ export async function saveLandmark(landmark: LandmarkAnalysis): Promise<void> {
     const updatedLandmarks = [savedLandmark, ...existingMeta];
     
     // Save back to storage
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updatedLandmarks));
+    await AsyncStorage.setItem(PASSPORT_KEY, JSON.stringify(updatedLandmarks));
     
     console.log('Successfully saved landmark to passport:', landmark.name);
     
@@ -342,7 +343,7 @@ export async function removeLandmark(landmarkId: string): Promise<void> {
     });
     
     // Save back to storage
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(filteredLandmarks));
+    await AsyncStorage.setItem(PASSPORT_KEY, JSON.stringify(filteredLandmarks));
     
     console.log('Successfully removed landmark from passport:', landmarkId);
     
@@ -432,7 +433,7 @@ export async function clearAllSavedLandmarks(createBackup: boolean = false): Pro
     }
     
     // Clear both new and legacy storage keys
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await AsyncStorage.removeItem(PASSPORT_KEY);
     await AsyncStorage.removeItem(LEGACY_STORAGE_KEY);
     
     console.log('Cleared all saved landmarks');
@@ -456,7 +457,7 @@ export async function forceCleanupCorruptedData(): Promise<{
   try {
     console.log('Force cleaning corrupted data...');
     
-    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const stored = await AsyncStorage.getItem(PASSPORT_KEY);
     let originalData: any[] = [];
     
     if (stored) {
@@ -580,7 +581,7 @@ export async function diagnoseStorageHealth(): Promise<{
   migrationNeeded: boolean;
 }> {
   try {
-    const stored = await AsyncStorage.getItem(STORAGE_KEY);
+    const stored = await AsyncStorage.getItem(PASSPORT_KEY);
     const legacyStored = await AsyncStorage.getItem(LEGACY_STORAGE_KEY);
     
     let rawData: any[] = [];
@@ -786,5 +787,167 @@ export async function clearScanHistory(): Promise<void> {
   } catch (error) {
     console.error('Error clearing scan history:', error);
     throw new Error('Failed to clear scan history');
+  }
+}
+
+/**
+ * =============================================
+ * COLLECTIONS MANAGEMENT (Museum Items)
+ * =============================================
+ */
+
+/**
+ * Save a museum item to collections
+ */
+export async function saveCollection(landmark: LandmarkAnalysis): Promise<void> {
+  try {
+    // Validate input landmark
+    if (!isValidLandmark(landmark)) {
+      throw new Error('Invalid landmark data provided for saving to collections');
+    }
+    
+    console.log('Saving museum item to collections:', landmark.name);
+    
+    // Get existing saved collections with validation
+    const existingCollections = await getSavedCollections();
+    
+    // Check if already saved (prevent duplicates)
+    const isAlreadySaved = existingCollections.some(saved => {
+      return saved && saved.id && saved.id === landmark.id;
+    });
+    
+    if (isAlreadySaved) {
+      console.log('Museum item already in collections, skipping:', landmark.name);
+      return;
+    }
+    
+    // Create new saved collection entry
+    const savedCollection: SavedLandmarkMeta = {
+      landmark: landmark,
+      savedAt: new Date().toISOString()
+    };
+    
+    // Add to existing collections
+    const allCollectionEntries = await getSavedCollectionsWithMeta();
+    allCollectionEntries.push(savedCollection);
+    
+    // Save updated list to storage
+    await AsyncStorage.setItem(COLLECTIONS_KEY, JSON.stringify(allCollectionEntries));
+    console.log('Museum item successfully saved to collections');
+    
+  } catch (error) {
+    console.error('Error saving museum item to collections:', error);
+    throw new Error('Failed to save museum item to collections');
+  }
+}
+
+/**
+ * Get all saved collections (museum items only) - returns just the landmark data
+ */
+export async function getSavedCollections(): Promise<LandmarkAnalysis[]> {
+  try {
+    const collections = await getSavedCollectionsWithMeta();
+    return collections.map(entry => entry.landmark).filter(landmark => landmark && landmark.id && landmark.name);
+  } catch (error) {
+    console.error('Error getting saved collections:', error);
+    return [];
+  }
+}
+
+/**
+ * Get saved collections with metadata
+ */
+export async function getSavedCollectionsWithMeta(): Promise<SavedLandmarkMeta[]> {
+  try {
+    const stored = await AsyncStorage.getItem(COLLECTIONS_KEY);
+    
+    if (!stored) {
+      return [];
+    }
+    
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      console.warn('Collections storage corrupted, resetting');
+      await AsyncStorage.removeItem(COLLECTIONS_KEY);
+      return [];
+    }
+    
+    // Validate and filter valid entries
+    const validCollections = parsed.filter(entry => {
+      return entry && 
+             entry.landmark && 
+             isValidLandmark(entry.landmark) && 
+             typeof entry.savedAt === 'string';
+    });
+    
+    // Sort by savedAt (newest first)
+    return validCollections.sort((a, b) => 
+      new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+    );
+    
+  } catch (error) {
+    console.error('Error parsing saved collections:', error);
+    return [];
+  }
+}
+
+/**
+ * Remove a museum item from collections
+ */
+export async function removeCollection(landmarkId: string): Promise<void> {
+  try {
+    if (!landmarkId || typeof landmarkId !== 'string') {
+      throw new Error('Invalid landmark ID provided for removal from collections');
+    }
+    
+    console.log('Removing museum item from collections:', landmarkId);
+    
+    // Get current collections
+    const existingCollections = await getSavedCollectionsWithMeta();
+    
+    // Filter out the landmark to remove
+    const filteredCollections = existingCollections.filter(entry => 
+      entry && entry.landmark && entry.landmark.id !== landmarkId
+    );
+    
+    // Save updated list
+    await AsyncStorage.setItem(COLLECTIONS_KEY, JSON.stringify(filteredCollections));
+    
+    console.log('Museum item removed from collections');
+    
+  } catch (error) {
+    console.error('Error removing museum item from collections:', error);
+    throw new Error('Failed to remove museum item from collections');
+  }
+}
+
+/**
+ * Check if a museum item is saved in collections
+ */
+export async function isCollectionSaved(landmarkId: string): Promise<boolean> {
+  try {
+    if (!landmarkId || typeof landmarkId !== 'string') {
+      return false;
+    }
+    
+    const collections = await getSavedCollections();
+    return collections.some(landmark => landmark && landmark.id === landmarkId);
+    
+  } catch (error) {
+    console.error('Error checking if museum item is in collections:', error);
+    return false;
+  }
+}
+
+/**
+ * Get saved collections count
+ */
+export async function getSavedCollectionsCount(): Promise<number> {
+  try {
+    const collections = await getSavedCollections();
+    return collections.length;
+  } catch (error) {
+    console.error('Error getting saved collections count:', error);
+    return 0;
   }
 }

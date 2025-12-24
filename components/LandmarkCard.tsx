@@ -43,18 +43,18 @@ export const LandmarkCard: React.FC<LandmarkCardProps> = ({
 
   const sizeConfig = {
     small: {
-      cardHeight: 120,
-      imageHeight: 80,
+      cardHeight: 180,
+      imageHeight: 120,
       padding: Spacing.sm,
     },
     medium: {
-      cardHeight: 160,
-      imageHeight: 120,
+      cardHeight: 220,
+      imageHeight: 150,
       padding: Spacing.md,
     },
     large: {
-      cardHeight: 200,
-      imageHeight: 160,
+      cardHeight: 260,
+      imageHeight: 180,
       padding: Spacing.lg,
     },
   };
@@ -124,7 +124,8 @@ export const LandmarkCard: React.FC<LandmarkCardProps> = ({
   };
 
   const renderTags = () => {
-    if (tags.length === 0) return null;
+    const hasContent = tags.length > 0 || confidence;
+    if (!hasContent) return null;
     
     return (
       <View style={styles.tagsContainer}>
@@ -140,6 +141,13 @@ export const LandmarkCard: React.FC<LandmarkCardProps> = ({
             +{tags.length - 2}
           </ThemedText>
         )}
+        {confidence && (
+          <View style={[styles.bottomConfidenceBadge, { backgroundColor: confidence >= 90 ? colors.success : confidence >= 70 ? colors.warning : colors.error }]}>
+            <ThemedText style={styles.confidenceText}>
+              {Math.round(confidence)}%
+            </ThemedText>
+          </View>
+        )}
       </View>
     );
   };
@@ -150,11 +158,11 @@ export const LandmarkCard: React.FC<LandmarkCardProps> = ({
         styles.card,
         {
           backgroundColor: colors.card,
+          borderColor: colors.cardBorder,
           minHeight: config.cardHeight,
           padding: config.padding,
           opacity: pressed ? 0.95 : 1.0,
         },
-        Shadows.medium,
         style,
       ]}
       onPress={onPress}
@@ -182,7 +190,6 @@ export const LandmarkCard: React.FC<LandmarkCardProps> = ({
         )}
         
         {/* Overlay Elements */}
-        {renderConfidenceBadge()}
         
         <View style={styles.overlayButtons}>
           {onDelete && (
@@ -248,6 +255,7 @@ export const LandmarkCard: React.FC<LandmarkCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     borderRadius: BorderRadius.lg,
+    borderWidth: 1,
     overflow: 'hidden',
   },
   imageContainer: {
@@ -292,7 +300,8 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Shadows.small,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   favoriteButton: {
     width: 32,
@@ -300,7 +309,8 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    ...Shadows.small,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   menuOverlay: {
     flex: 1,
@@ -360,5 +370,11 @@ const styles = StyleSheet.create({
   moreTagsText: {
     ...Typography.small,
     fontWeight: '600',
+  },
+  bottomConfidenceBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+    marginLeft: 'auto', // Push to the right
   },
 });
