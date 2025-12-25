@@ -27,7 +27,7 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const systemColorScheme = useSystemColorScheme() || 'light';
-  const [preference, setPreference] = useState<ThemePreference>('system');
+  const [preference, setPreference] = useState<ThemePreference>('light');
   const [isLoading, setIsLoading] = useState(true);
 
   // Determine effective color scheme based on preference

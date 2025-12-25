@@ -4,7 +4,6 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,10 +11,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { CameraOverlay } from '@/components/CameraOverlay';
-import { CustomButton } from '@/components/CustomButton';
 import { Colors, Shadows, BorderRadius, Typography, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { performScan } from '@/services/limitService';
+import { performScan, checkScanLimit } from '@/services/limitService';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -25,9 +23,9 @@ export default function CameraScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { mode = 'landmark', scanReserved } = useLocalSearchParams<{ 
+  const { mode = 'landmark', scanAllowed } = useLocalSearchParams<{ 
     mode?: 'landmark' | 'museum'; 
-    scanReserved?: string;
+    scanAllowed?: string;
   }>();
   
   const [facing, setFacing] = useState<CameraType>('back');
@@ -59,6 +57,20 @@ export default function CameraScreen() {
     loadLocationPreference();
   }, []);
 
+  useEffect(() => {
+    requestCameraPermissionIfNeeded();
+  }, [permission]);
+
+  const requestCameraPermissionIfNeeded = async () => {
+    if (!permission?.granted) {
+      const permissionResult = await requestPermission();
+      if (!permissionResult.granted) {
+        // If user denies permission, navigate back
+        router.back();
+      }
+    }
+  };
+
   const loadLocationPreference = async () => {
     try {
       const savedPreference = await AsyncStorage.getItem('location_enabled_preference');
@@ -75,40 +87,8 @@ export default function CameraScreen() {
   }
 
   if (!permission.granted) {
-    return (
-      <SafeAreaView style={styles.permissionContainer}>
-        <View style={[styles.permissionContent, { backgroundColor: colors.background }]}>
-          <View style={[styles.permissionIcon, { backgroundColor: colors.primary }]}>
-            <IconSymbol name="camera.fill" size={40} color="#FFFFFF" />
-          </View>
-          
-          <ThemedText style={[styles.permissionTitle, { color: colors.textPrimary }]}>
-            Camera Access Required
-          </ThemedText>
-          
-          <ThemedText style={[styles.permissionText, { color: colors.textSecondary }]}>
-            LandmarkAI needs access to your camera to scan and identify landmarks around you.
-          </ThemedText>
-          
-          <CustomButton
-            title="Grant Camera Permission"
-            onPress={requestPermission}
-            variant="primary"
-            size="large"
-            icon="camera.fill"
-            style={styles.permissionButton}
-          />
-          
-          <CustomButton
-            title="Go Back"
-            onPress={() => router.back()}
-            variant="ghost"
-            size="medium"
-            style={styles.backButton}
-          />
-        </View>
-      </SafeAreaView>
-    );
+    // Show loading while permission is being requested or denied
+    return <View style={styles.loadingContainer} />;
   }
 
   const handleCapture = async () => {
@@ -118,10 +98,10 @@ export default function CameraScreen() {
       setCapturing(true);
       setScanning(true);
 
-      // Check if scan was already reserved (from tab/homepage)
-      if (scanReserved !== 'true') {
-        // If not pre-reserved, check scan limits now
-        const limitResult = await performScan();
+      // Check if scan was pre-approved (from tab/homepage)
+      if (scanAllowed !== 'true') {
+        // If not pre-approved, check scan limits (without consuming)
+        const limitResult = await checkScanLimit(false);
         if (!limitResult.allowed) {
           setScanning(false);
           setCapturing(false);
@@ -129,7 +109,7 @@ export default function CameraScreen() {
           return;
         }
       }
-      // If scanReserved === 'true', scan was already decremented, proceed directly
+      // If scanAllowed === 'true', we know the user can scan
 
       // Take photo
       const photo = await cameraRef.current.takePictureAsync({
@@ -138,6 +118,16 @@ export default function CameraScreen() {
       });
 
       console.log('Photo captured:', photo.uri);
+
+      // Now consume the scan (photo was successful)
+      const scanResult = await performScan();
+      if (!scanResult.allowed) {
+        // This shouldn't happen since we pre-checked, but handle gracefully
+        setScanning(false);
+        setCapturing(false);
+        router.push('/paywall?source=scan_limit');
+        return;
+      }
 
       // Capture GPS coordinates if location is enabled
       let locationCoords: string | undefined;
@@ -211,9 +201,17 @@ export default function CameraScreen() {
         const selectedImage = result.assets[0];
         console.log('Image selected from gallery:', selectedImage.uri);
 
-        // Check scan limits
+        // Check scan limits first (without consuming)
+        const limitCheck = await checkScanLimit(false);
+        if (!limitCheck.allowed) {
+          router.push('/paywall?source=scan_limit');
+          return;
+        }
+
+        // Now consume the scan (image was successfully selected)
         const limitResult = await performScan();
         if (!limitResult.allowed) {
+          // This shouldn't happen since we pre-checked, but handle gracefully
           router.push('/paywall?source=scan_limit');
           return;
         }
@@ -223,7 +221,8 @@ export default function CameraScreen() {
           pathname: '/result',
           params: { 
             imageUri: selectedImage.uri,
-            source: 'new'
+            source: 'new',
+            scanType: mode
           }
         });
       }
@@ -387,39 +386,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // Permission Screen
-  permissionContainer: {
-    flex: 1,
-  },
-  permissionContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.xl,
-  },
-  permissionIcon: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.xl,
-    ...Shadows.large,
-  },
-  permissionTitle: {
-    ...Typography.h2,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-  },
-  permissionText: {
-    ...Typography.body,
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: Spacing.xl,
-  },
-  permissionButton: {
-    marginBottom: Spacing.lg,
-  },
 
   // Top Controls
   topControls: {

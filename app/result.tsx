@@ -15,6 +15,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LandmarkAnalysis, NearbyPlace } from '@/types';
 import { analyzeImage } from '@/services/aiService';
 import { saveLandmark, removeLandmark, isLandmarkSaved, addToScanHistory, saveCollection, removeCollection, isCollectionSaved } from '@/services/storageService';
+import { checkScanSuccessReview } from '@/services/reviewService';
 import { enrichNearbyPlaces, formatDistance, getPlaceTypeIcon } from '@/services/placesService';
 import { ScanningAnimation } from '@/components/ScanningAnimation';
 
@@ -114,6 +115,12 @@ export default function ResultScreen() {
           console.error('Failed to add to scan history:', error);
           // Don't fail the analysis if scan history fails
         }
+        
+        // Check for scan success review after successful analysis
+        // This runs independently and won't block the UI
+        checkScanSuccessReview().catch(error => {
+          console.error('💥 Error in scan success review check:', error);
+        });
         
         enrichNearbyPlacesIfAvailable(analysis);
       }

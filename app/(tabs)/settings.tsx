@@ -1,4 +1,4 @@
-import { StyleSheet, Pressable, Alert, ScrollView, View, ActionSheetIOS, Platform } from 'react-native';
+import { StyleSheet, Pressable, Alert, ScrollView, View, ActionSheetIOS, Platform, Linking } from 'react-native';
 import { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
@@ -11,11 +11,13 @@ import { Colors, Shadows, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { getCachedSubscriptionStatus, refreshSubscriptionStatus } from '@/services/limitService';
+import { useRevenueCat } from '@/providers/RevenueCatProvider';
 import { SubscriptionStatus } from '@/types';
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const { preference, setThemePreference } = useTheme();
+  const { restorePurchases } = useRevenueCat();
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -52,15 +54,23 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               setLoading(true);
+              console.log('🔄 Settings: Starting restore purchases...');
+              
+              // Use RevenueCat provider's restore method
+              const restoreSuccess = await restorePurchases();
+              
+              // Refresh our local subscription status after restore
               const status = await refreshSubscriptionStatus();
               setSubscriptionStatus(status);
               
-              if (status.isPremium) {
-                Alert.alert('Success', 'Your premium subscription has been restored!');
-              } else {
-                Alert.alert('No Purchases Found', 'We couldn\'t find any existing purchases for this account.');
-              }
+              console.log('📊 Settings: Restore result -', restoreSuccess ? 'SUCCESS' : 'NO_PURCHASES');
+              console.log('📊 Settings: Updated status -', status.isPremium ? 'PREMIUM' : 'FREE');
+              
+              // Note: The RevenueCat provider already shows success/failure alerts
+              // We just need to refresh our local state
+              
             } catch (error) {
+              console.error('💥 Settings: Restore error:', error);
               Alert.alert('Error', 'Failed to restore purchases. Please try again.');
             } finally {
               setLoading(false);
@@ -93,25 +103,39 @@ export default function SettingsScreen() {
       'Need help? Contact our support team for assistance.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Email Support', onPress: () => console.log('Email support') },
+        { text: 'Email Support', onPress: handleEmailSupport },
       ]
     );
   };
 
-  const handlePrivacyPress = () => {
-    Alert.alert(
-      'Privacy Policy',
-      'Privacy policy will be available in a future update.',
-      [{ text: 'OK' }]
-    );
+  const handleEmailSupport = async () => {
+    const emailUrl = 'mailto:landmarkaiguide@gmail.com?subject=LandmarkAI Support Request';
+    try {
+      await Linking.openURL(emailUrl);
+    } catch (error) {
+      console.error('Failed to open email client:', error);
+      Alert.alert('Error', 'Unable to open email client. Please email us directly at landmarkaiguide@gmail.com');
+    }
   };
 
-  const handleTermsPress = () => {
-    Alert.alert(
-      'Terms of Service',
-      'Terms of service will be available in a future update.',
-      [{ text: 'OK' }]
-    );
+  const handlePrivacyPress = async () => {
+    const privacyUrl = 'https://www.freeprivacypolicy.com/live/d267bff4-586c-40d4-a03f-e425112f455d';
+    try {
+      await Linking.openURL(privacyUrl);
+    } catch (error) {
+      console.error('Failed to open Privacy URL:', error);
+      Alert.alert('Error', 'Unable to open Privacy Policy. Please try again later.');
+    }
+  };
+
+  const handleTermsPress = async () => {
+    const termsUrl = 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
+    try {
+      await Linking.openURL(termsUrl);
+    } catch (error) {
+      console.error('Failed to open Terms URL:', error);
+      Alert.alert('Error', 'Unable to open Terms of Use. Please try again later.');
+    }
   };
 
   const getThemeDisplayText = (preference: ThemePreference): string => {
@@ -317,8 +341,8 @@ export default function SettingsScreen() {
         ))}
 
         <ThemedView style={styles.appInfo}>
-          <ThemedText style={styles.appVersion}>LandmarkAI v1.0.0</ThemedText>
-          <ThemedText style={styles.appCopyright}>© 2024 LandmarkAI</ThemedText>
+          <ThemedText style={styles.appVersion}>LandmarkAI v1.0.2</ThemedText>
+          <ThemedText style={styles.appCopyright}>© 2025 LandmarkAI</ThemedText>
         </ThemedView>
       </ScrollView>
     </View>

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "LandmarkAI-v2",
+    "name": "LandmarkAI",
     "slug": "LandmarkAI-v2",
     "version": "1.0.2",
     "orientation": "portrait",
@@ -11,7 +11,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.recapp.landmarkai",
-      "buildNumber": "3"
+      "buildNumber": "3",
+      "appleTeamId": "3WL9FYSV99"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +22,9 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [],
+      "package": "com.recapp.landmarkai"
     },
     "web": {
       "output": "static",
@@ -35,10 +38,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
+          "backgroundColor": "#ffffff"
         }
       ]
     ],
@@ -48,7 +48,8 @@
     },
     "extra": {
       "supabaseUrl": "https://xishvjmkklbatttnrwbk.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhpc2h2am1ra2xiYXR0dG5yd2JrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU5MTcyMzksImV4cCI6MjA4MTQ5MzIzOX0.2JKb5PpTJwVx8gjD2E5gD3kOswHOkx01euRTqgkJHbM"
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhpc2h2am1ra2xiYXR0dG5yd2JrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU5MTcyMzksImV4cCI6MjA4MTQ5MzIzOX0.2JKb5PpTJwVx8gjD2E5gD3kOswHOkx01euRTqgkJHbM",
+      "revenueCatApiKeyIos": "appl_boZGShDRWyOQDzbjYFyAkCJysPB"
     }
   }
 }

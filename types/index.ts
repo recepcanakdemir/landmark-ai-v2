@@ -80,6 +80,112 @@ export interface SubscriptionStatus {
   platform: 'ios' | 'android' | 'web';
 }
 
+// RevenueCat Integration Types
+export interface RevenueCatCustomerInfo {
+  originalAppUserId: string;
+  originalApplicationVersion: string | null;
+  originalPurchaseDate: string | null;
+  requestDate: string;
+  firstSeen: string;
+  entitlements: {
+    all: Record<string, RevenueCatEntitlement>;
+    active: Record<string, RevenueCatEntitlement>;
+  };
+  allPurchaseDates: Record<string, string>;
+  allPurchasedProductIdentifiers: string[];
+  latestExpirationDate: string | null;
+  nonConsumablePurchases: string[];
+  allExpirationDates: Record<string, string>;
+  requestDateAsMillis: number;
+  firstSeenAsMillis: number;
+}
+
+export interface RevenueCatEntitlement {
+  identifier: string;
+  isActive: boolean;
+  willRenew: boolean;
+  periodType: string;
+  latestPurchaseDate: string;
+  latestPurchaseDateAsMillis: number;
+  originalPurchaseDate: string;
+  originalPurchaseDateAsMillis: number;
+  expirationDate: string | null;
+  expirationDateAsMillis: number | null;
+  store: string;
+  productIdentifier: string;
+  isSandbox: boolean;
+  unsubscribeDetectedAt: string | null;
+  billingIssueDetectedAt: string | null;
+}
+
+export interface RevenueCatOffering {
+  identifier: string;
+  serverDescription: string;
+  metadata: Record<string, any> | null;
+  availablePackages: RevenueCatPackage[];
+  lifetime: RevenueCatPackage | null;
+  annual: RevenueCatPackage | null;
+  sixMonth: RevenueCatPackage | null;
+  threeMonth: RevenueCatPackage | null;
+  twoMonth: RevenueCatPackage | null;
+  monthly: RevenueCatPackage | null;
+  weekly: RevenueCatPackage | null;
+}
+
+export interface RevenueCatOfferings {
+  all: Record<string, RevenueCatOffering>;
+  current: RevenueCatOffering | null;
+}
+
+export interface RevenueCatPackage {
+  identifier: string;
+  packageType: string;
+  product: RevenueCatProduct;
+  offeringIdentifier: string;
+}
+
+export interface RevenueCatProduct {
+  identifier: string;
+  description: string;
+  title: string;
+  price: number;
+  priceString: string;
+  currencyCode: string;
+  introPrice: RevenueCatIntroPrice | null;
+  discounts: RevenueCatDiscount[];
+}
+
+export interface RevenueCatIntroPrice {
+  price: number;
+  priceString: string;
+  period: string;
+  cycles: number;
+  periodUnit: string;
+  periodNumberOfUnits: number;
+}
+
+export interface RevenueCatDiscount {
+  identifier: string;
+  price: number;
+  priceString: string;
+  cycles: number;
+  period: string;
+  periodUnit: string;
+  periodNumberOfUnits: number;
+}
+
+export interface RevenueCatContextValue {
+  customerInfo: RevenueCatCustomerInfo | null;
+  offerings: RevenueCatOfferings | null;
+  currentOffering: RevenueCatOffering | null;
+  isPro: boolean;
+  isLoading: boolean;
+  error: string | null;
+  purchasePackage: (packageToPurchase: RevenueCatPackage) => Promise<boolean>;
+  restorePurchases: () => Promise<boolean>;
+  refreshCustomerInfo: () => Promise<void>;
+}
+
 export interface UserLimit {
   deviceId: string;
   date: string; // YYYY-MM-DD format

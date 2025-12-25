@@ -12,7 +12,7 @@ import { LandmarkCard } from '@/components/LandmarkCard';
 import { TabHeader } from '@/components/TabHeader';
 import { Colors, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getCurrentUsageStats, performScan } from '@/services/limitService';
+import { getCurrentUsageStats, checkScanLimit } from '@/services/limitService';
 import { getScanHistory } from '@/services/storageService';
 import { LimitCheckResult, LandmarkAnalysis } from '@/types';
 
@@ -55,10 +55,14 @@ export default function HomeScreen() {
 
   const loadData = async () => {
     try {
+      console.log('🏠 Home Screen: Loading usage stats and scan history...');
+      
       const [stats, scanHistory] = await Promise.all([
         getCurrentUsageStats(),
         getScanHistory()
       ]);
+      
+      console.log('📊 Home Screen - Usage Stats:', JSON.stringify(stats, null, 2));
       setUsageStats(stats);
       
       // Get recent scans (last 5) from scan history
@@ -67,9 +71,16 @@ export default function HomeScreen() {
         .slice(0, 5); // Show only recent 5
       
       setRecentLandmarks(recentScans);
-      console.log('Loaded recent scans:', recentScans.length);
+      console.log('🏠 Loaded recent scans:', recentScans.length);
+      
+      // Log what will be displayed in badges
+      const badgeText = stats?.isPremium || stats?.isTrialActive ? '∞' : Math.max(0, stats?.remaining || 0).toString();
+      console.log('🏷️ Badge will display:', badgeText, 
+                  '(isPremium:', stats?.isPremium, 
+                  ', isTrialActive:', stats?.isTrialActive, 
+                  ', remaining:', stats?.remaining, ')');
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('💥 Error loading data:', error);
       setRecentLandmarks([]); // Set empty array on error
     } finally {
       setLoading(false);
@@ -97,17 +108,14 @@ export default function HomeScreen() {
 
   const handleScanPress = async () => {
     try {
-      // Real-time atomic check-and-reserve
-      const limitResult = await performScan();
+      // Check if user is allowed to scan (without consuming)
+      const limitResult = await checkScanLimit(false);
       
       if (limitResult.allowed) {
         router.push({
           pathname: '/camera',
-          params: { scanReserved: 'true' }
+          params: { scanAllowed: 'true' }
         });
-        
-        // Refresh usage stats for UI
-        loadData();
       } else {
         router.push('/paywall?source=scan_limit');
       }
@@ -119,17 +127,14 @@ export default function HomeScreen() {
 
   const handleExplorePress = async () => {
     try {
-      // Real-time atomic check-and-reserve for art scanning
-      const limitResult = await performScan();
+      // Check if user is allowed to scan (without consuming)
+      const limitResult = await checkScanLimit(false);
       
       if (limitResult.allowed) {
         router.push({
           pathname: '/camera',
-          params: { mode: 'museum', scanReserved: 'true' }
+          params: { mode: 'museum', scanAllowed: 'true' }
         });
-        
-        // Refresh usage stats for UI
-        loadData();
       } else {
         router.push('/paywall?source=scan_limit');
       }

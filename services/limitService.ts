@@ -207,21 +207,73 @@ async function getUserAccessState(): Promise<UserAccessState> {
 
 /**
  * Check RevenueCat subscription status
- * TODO: Implement actual RevenueCat integration
+ * Integrates with the RevenueCat context provider for real-time subscription status
  */
 async function checkPremiumStatus(): Promise<SubscriptionStatus> {
   try {
-    // Placeholder for RevenueCat integration
-    // This will be implemented when RevenueCat is set up
+    // Import RevenueCat provider dynamically to avoid circular dependencies
+    const { default: Purchases } = await import('react-native-purchases');
+    
+    console.log('🔍 Checking RevenueCat subscription status...');
+    
+    // Get current customer info
+    const customerInfo = await Purchases.getCustomerInfo();
+    
+    console.log('📊 RevenueCat CustomerInfo received:');
+    console.log('- Original App User ID:', customerInfo.originalAppUserId);
+    console.log('- Active Entitlements:', Object.keys(customerInfo.entitlements.active));
+    console.log('- All Entitlements:', Object.keys(customerInfo.entitlements.all));
+    console.log('- Latest Expiration Date:', customerInfo.latestExpirationDate);
+    
+    // Check all available entitlements first
+    const allEntitlements = customerInfo.entitlements.all;
+    const activeEntitlements = customerInfo.entitlements.active;
+    
+    console.log('🔍 Looking for "premium" entitlement...');
+    
+    // Check if 'premium' entitlement exists and is active
+    const proEntitlement = activeEntitlements['premium'];
+    const isPremium = proEntitlement?.isActive === true;
+    
+    if (proEntitlement) {
+      console.log('✅ Found "premium" entitlement:');
+      console.log('- Is Active:', proEntitlement.isActive);
+      console.log('- Product ID:', proEntitlement.productIdentifier);
+      console.log('- Will Renew:', proEntitlement.willRenew);
+      console.log('- Period Type:', proEntitlement.periodType);
+      console.log('- Expiration Date:', proEntitlement.expirationDate);
+      console.log('- Store:', proEntitlement.store);
+    } else {
+      console.log('❌ No "premium" entitlement found in active entitlements');
+      
+      // Check if it exists in all entitlements but not active
+      const allProEntitlement = allEntitlements['premium'];
+      if (allProEntitlement) {
+        console.log('⚠️ Found "premium" entitlement in all entitlements but not active:');
+        console.log('- Is Active:', allProEntitlement.isActive);
+        console.log('- Expiration Date:', allProEntitlement.expirationDate);
+      }
+    }
+    
+    console.log(`🎯 Final Premium Status: ${isPremium ? 'PREMIUM' : 'FREE'}`);
+    
     return {
-      isPremium: false,
-      platform: 'ios' // Will be detected from platform
+      isPremium,
+      productId: proEntitlement?.productIdentifier,
+      purchaseDate: proEntitlement?.latestPurchaseDate,
+      expirationDate: proEntitlement?.expirationDate || undefined,
+      isTrialPeriod: proEntitlement?.periodType === 'trial',
+      autoRenewStatus: proEntitlement?.willRenew,
+      platform: 'ios', // iOS-only app
     };
   } catch (error) {
-    console.error('Error checking premium status:', error);
+    console.error('💥 Error checking premium status via RevenueCat:', error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
+    
+    // Fallback: return non-premium status
     return {
       isPremium: false,
-      platform: 'ios'
+      platform: 'ios', // iOS-only app
     };
   }
 }
@@ -471,6 +523,27 @@ export async function refreshSubscriptionStatus(): Promise<SubscriptionStatus> {
   const status = await checkPremiumStatus();
   await setCachedSubscriptionStatus(status);
   return status;
+}
+
+/**
+ * Helper function to check if user has premium access
+ * This can be used in components that don't have access to the RevenueCat context
+ */
+export async function checkIsPremium(): Promise<boolean> {
+  try {
+    const subscriptionStatus = await checkPremiumStatus();
+    return subscriptionStatus.isPremium;
+  } catch (error) {
+    console.error('Error checking premium status:', error);
+    return false;
+  }
+}
+
+/**
+ * Helper function to get current subscription info for display
+ */
+export async function getSubscriptionInfo(): Promise<SubscriptionStatus> {
+  return await checkPremiumStatus();
 }
 
 // Export trial management functions
