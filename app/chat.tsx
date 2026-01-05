@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useState, useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -21,6 +22,7 @@ import {
 export default function ChatScreen() {
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
+  const { t, i18n } = useTranslation();
   const { landmarkId, landmarkName, landmarkData } = useLocalSearchParams<{ 
     landmarkId?: string; 
     landmarkName?: string;
@@ -40,7 +42,7 @@ export default function ChatScreen() {
   useEffect(() => {
     const initializeChat = async () => {
       if (!landmarkId || !landmarkName) {
-        setError('Missing landmark information');
+        setError(t('chat.error'));
         return;
       }
 
@@ -53,7 +55,7 @@ export default function ChatScreen() {
         
         // If no messages, create greeting
         if (chatSession.messages.length === 0 && landmark) {
-          const greetingMessage = createGreetingMessage(landmark);
+          const greetingMessage = createGreetingMessage(landmark, i18n.language?.split('-')[0] || 'en');
           const updatedSession = await addMessageToSession(chatSession, greetingMessage);
           setSession(updatedSession);
           setMessages(updatedSession.messages);
@@ -63,7 +65,7 @@ export default function ChatScreen() {
         
       } catch (err) {
         console.error('Error initializing chat:', err);
-        setError('Failed to load chat session');
+        setError(t('chat.error'));
       } finally {
         setIsLoading(false);
       }
@@ -90,7 +92,7 @@ export default function ChatScreen() {
 
     const validation = validateMessage(inputText);
     if (!validation.isValid) {
-      setError(validation.error || 'Invalid message');
+      setError(validation.error || t('chat.error'));
       return;
     }
 
@@ -115,7 +117,8 @@ export default function ChatScreen() {
       const response = await sendMessage({
         landmark,
         messages: sessionWithUserMessage.messages,
-        userMessage: userMessage.content
+        userMessage: userMessage.content,
+        language: i18n.language?.split('-')[0] || 'en'
       });
       
       if (response.success && response.message) {
@@ -127,12 +130,12 @@ export default function ChatScreen() {
         const finalSession = await addMessageToSession(sessionWithUserMessage, response.message);
         setSession(finalSession);
       } else {
-        setError(response.error || 'Failed to get AI response');
+        setError(response.error || t('chat.error'));
       }
       
     } catch (err) {
       console.error('Error sending message:', err);
-      setError('Failed to send message');
+      setError(t('chat.error'));
     } finally {
       setIsLoading(false);
       setIsTyping(false);
@@ -223,7 +226,7 @@ export default function ChatScreen() {
           <Pressable style={styles.backButton} onPress={handleBack}>
             <IconSymbol name="chevron.left" size={24} color={Colors[colorScheme ?? 'light'].text} />
           </Pressable>
-          <ThemedText style={styles.headerTitle}>Chat Error</ThemedText>
+          <ThemedText style={styles.headerTitle}>{t('chat.title')}</ThemedText>
           <View style={styles.backButton} />
         </View>
         
@@ -291,7 +294,7 @@ export default function ChatScreen() {
         <View style={[styles.inputBar, { backgroundColor: Colors[colorScheme ?? 'light'].card }]}>
           <TextInput
             style={[styles.textInput, { color: Colors[colorScheme ?? 'light'].text }]}
-            placeholder="Type your question..."
+            placeholder={t('chat.placeholder')}
             placeholderTextColor={Colors[colorScheme ?? 'light'].icon}
             value={inputText}
             onChangeText={setInputText}

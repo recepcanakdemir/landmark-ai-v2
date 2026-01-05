@@ -9,7 +9,9 @@ import Animated, {
   withRepeat,
   runOnJS
 } from 'react-native-reanimated';
+import { useTranslation } from 'react-i18next';
 import { Colors } from '@/constants/theme';
+import { resolveImageSource } from '@/services/storageService';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -18,28 +20,33 @@ interface ScanningAnimationProps {
   scanType?: 'landmark' | 'museum';
 }
 
-const LANDMARK_MESSAGES = [
-  'Analyzing image...',
-  'Detecting geometry...',
-  'Processing details...',
-  'Identifying features...',
-  'Matching landmarks...',
-  'Finalizing analysis...'
-];
-
-const MUSEUM_MESSAGES = [
-  'Analyzing artwork...',
-  'Identifying artistic style...',
-  'Processing cultural details...',
-  'Analyzing historical context...',
-  'Matching museum pieces...',
-  'Finalizing art analysis...'
-];
-
 export function ScanningAnimation({ imageUri, scanType = 'landmark' }: ScanningAnimationProps) {
+  const { t } = useTranslation();
+  
+  const LANDMARK_MESSAGES = [
+    t('scanning.landmark.analyzing'),
+    t('scanning.landmark.detecting'),
+    t('scanning.landmark.processing'),
+    t('scanning.landmark.identifying'),
+    t('scanning.landmark.matching'),
+    t('scanning.landmark.finalizing')
+  ];
+
+  const MUSEUM_MESSAGES = [
+    t('scanning.museum.analyzing'),
+    t('scanning.museum.identifying'),
+    t('scanning.museum.processing'),
+    t('scanning.museum.context'),
+    t('scanning.museum.matching'),
+    t('scanning.museum.finalizing')
+  ];
+
   const STATUS_MESSAGES = scanType === 'museum' ? MUSEUM_MESSAGES : LANDMARK_MESSAGES;
   const [statusText, setStatusText] = useState(STATUS_MESSAGES[0]);
   const scannerPosition = useSharedValue(0);
+  
+  // Resolve image URI for persistent images
+  const resolvedImageUri = resolveImageSource(imageUri) || imageUri;
 
   useEffect(() => {
     // Start the scanner line animation
@@ -75,7 +82,7 @@ export function ScanningAnimation({ imageUri, scanType = 'landmark' }: ScanningA
     <View style={styles.container}>
       {/* Layer 1: Full-screen Background Image */}
       <Image 
-        source={{ uri: imageUri }} 
+        source={{ uri: resolvedImageUri }} 
         style={StyleSheet.absoluteFill} 
         contentFit="cover" 
       />
@@ -92,7 +99,7 @@ export function ScanningAnimation({ imageUri, scanType = 'landmark' }: ScanningA
         <View style={styles.focusedImageContainer}>
           {/* Focused Image */}
           <Image 
-            source={{ uri: imageUri }} 
+            source={{ uri: resolvedImageUri }} 
             style={styles.focusedImage} 
             contentFit="cover" 
           />

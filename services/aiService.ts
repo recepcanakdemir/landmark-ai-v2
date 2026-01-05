@@ -15,10 +15,33 @@ interface GeminiProxyPayload {
   }>;
 }
 
+// Language mapping for AI prompts
+const LANGUAGE_NAMES = {
+  'en': 'English',
+  'tr': 'Turkish',
+  'es': 'Spanish',
+  'it': 'Italian',
+  'de': 'German',
+  'fr': 'French',
+  'zh': 'Chinese',
+  'ja': 'Japanese',
+  'ko': 'Korean',
+  'pt': 'Portuguese',
+  'ru': 'Russian',
+  'ar': 'Arabic'
+} as const;
+
+export type SupportedAILanguage = keyof typeof LANGUAGE_NAMES;
+
 /**
  * Analyze image using Gemini AI via Supabase Edge Function
  */
-export async function analyzeImage(imageUri: string, locationCoords?: { lat: number; lng: number }, scanType: 'landmark' | 'museum' = 'landmark'): Promise<LandmarkAnalysis> {
+export async function analyzeImage(
+  imageUri: string, 
+  locationCoords?: { lat: number; lng: number }, 
+  scanType: 'landmark' | 'museum' = 'landmark',
+  language: SupportedAILanguage = 'en'
+): Promise<LandmarkAnalysis> {
   try {
     console.log('Starting AI analysis for image:', imageUri);
     
@@ -31,7 +54,7 @@ export async function analyzeImage(imageUri: string, locationCoords?: { lat: num
         {
           parts: [
             {
-              text: buildAnalysisPrompt(locationCoords, scanType)
+              text: buildAnalysisPrompt(locationCoords, scanType, language)
             },
             {
               inlineData: {
@@ -121,16 +144,22 @@ async function convertImageToBase64(imageUri: string): Promise<string> {
 /**
  * Build the analysis prompt for Gemini
  */
-function buildAnalysisPrompt(locationCoords?: { lat: number; lng: number }, scanType: 'landmark' | 'museum' = 'landmark'): string {
+function buildAnalysisPrompt(locationCoords?: { lat: number; lng: number }, scanType: 'landmark' | 'museum' = 'landmark', language: SupportedAILanguage = 'en'): string {
   const locationContext = locationCoords 
     ? `\n\nCONTEXT: The image was captured at GPS coordinates: Latitude ${locationCoords.lat}, Longitude ${locationCoords.lng}. You MUST use this location data to filter your identification results and prioritize ${scanType === 'museum' ? 'artworks and museum pieces' : 'landmarks'} geographically located near these coordinates.`
     : '';
 
+  // Get language name for prompt
+  const languageName = LANGUAGE_NAMES[language] || 'English';
+  const languageInstruction = language !== 'en' 
+    ? `\n\nIMPORTANT: Provide the response strictly in ${languageName} language. All text fields in the JSON response must be in ${languageName}.`
+    : '';
+
   if (scanType === 'museum') {
-    return buildMuseumAnalysisPrompt(locationContext);
+    return buildMuseumAnalysisPrompt(locationContext, language);
   }
 
-  return `Analyze this landmark image and return ONLY a valid JSON object with no markdown formatting or code blocks.${locationContext}
+  return `Analyze this landmark image and return ONLY a valid JSON object with no markdown formatting or code blocks.${locationContext}${languageInstruction}
 
 The JSON must have this exact structure:
 {
@@ -210,8 +239,14 @@ Analyze the image now:`;
 /**
  * Build specialized analysis prompt for museum pieces and artworks
  */
-function buildMuseumAnalysisPrompt(locationContext: string): string {
-  return `You are an EXPERT ART GUIDE and MUSEUM CURATOR. Analyze this artwork, sculpture, historical artifact, or museum piece and return ONLY a valid JSON object with no markdown formatting or code blocks.
+function buildMuseumAnalysisPrompt(locationContext: string, language: SupportedAILanguage = 'en'): string {
+  // Get language name for prompt
+  const languageName = LANGUAGE_NAMES[language] || 'English';
+  const languageInstruction = language !== 'en' 
+    ? `\n\nIMPORTANT: Provide the response strictly in ${languageName} language. All text fields in the JSON response must be in ${languageName}.`
+    : '';
+  
+  return `You are an EXPERT ART GUIDE and MUSEUM CURATOR. Analyze this artwork, sculpture, historical artifact, or museum piece and return ONLY a valid JSON object with no markdown formatting or code blocks.${locationContext}${languageInstruction}
 
 This is a specialized ART GUIDE analysis for: Paintings, Sculptures, Murals, Historical Artifacts (weapons, uniforms, tools), Museum Machines, Ancient Artifacts, and Cultural Objects.
 

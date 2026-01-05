@@ -1,10 +1,13 @@
 import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
-import { View, StyleSheet, ActivityIndicator } from 'react-native';
+import { useEffect, useState, useRef } from 'react';
+import { View, StyleSheet, Animated, Dimensions } from 'react-native';
 import { Image } from 'expo-image';
 import 'react-native-reanimated';
+
+// Import i18n configuration
+import '@/i18n';
 
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { RevenueCatProvider } from '@/providers/RevenueCatProvider';
@@ -21,10 +24,26 @@ export const unstable_settings = {
 function AppContent() {
   const colorScheme = useColorScheme();
   const [isLoading, setIsLoading] = useState(true);
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     checkLaunchPaywall();
-  }, []);
+    // Start loading bar animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(progressAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: false,
+        }),
+        Animated.timing(progressAnim, {
+          toValue: 0,
+          duration: 1500,
+          useNativeDriver: false,
+        }),
+      ])
+    ).start();
+  }, [progressAnim]);
 
   const checkLaunchPaywall = async () => {
     try {
@@ -82,17 +101,23 @@ function AppContent() {
           />
         </View>
         
-        {/* Loading Spinner */}
-        <ActivityIndicator 
-          size="large" 
-          color={colors.primary} 
-          style={styles.loadingSpinner}
-        />
-        
-        {/* Loading Text */}
-        <ThemedText style={[styles.loadingText, { color: colors.textSecondary }]}>
-          Initializing...
-        </ThemedText>
+        {/* Loading Bar */}
+        <View style={styles.loadingBarContainer}>
+          <View style={[styles.loadingBarBackground, { backgroundColor: colors.backgroundSecondary }]}>
+            <Animated.View
+              style={[
+                styles.loadingBar,
+                {
+                  backgroundColor: colors.primary,
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
+        </View>
       </View>
     );
   }
@@ -119,19 +144,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   logoContainer: {
-    marginBottom: 40,
+    marginBottom: 60,
   },
   loadingLogo: {
     width: 120,
     height: 120,
   },
-  loadingSpinner: {
-    marginBottom: 16,
+  loadingBarContainer: {
+    width: '40%',
+    maxWidth: 140,
   },
-  loadingText: {
-    fontSize: 16,
-    fontWeight: '500',
-    textAlign: 'center',
+  loadingBarBackground: {
+    width: '100%',
+    height: 6, // Bold thickness
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  loadingBar: {
+    height: '100%',
+    borderRadius: 3,
   },
 });
 

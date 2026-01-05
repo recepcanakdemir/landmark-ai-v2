@@ -2,6 +2,7 @@ import { StyleSheet, Pressable, Alert, ScrollView, View, ActionSheetIOS, Platfor
 import { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
+import Constants from 'expo-constants';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -13,6 +14,9 @@ import { useTheme, ThemePreference } from '@/contexts/ThemeContext';
 import { getCachedSubscriptionStatus, refreshSubscriptionStatus } from '@/services/limitService';
 import { useRevenueCat } from '@/providers/RevenueCatProvider';
 import { SubscriptionStatus } from '@/types';
+import { useTranslation } from 'react-i18next';
+import { changeLanguage, SUPPORTED_LANGUAGES, SupportedLanguage } from '@/i18n';
+import { requestManualReview } from '@/services/reviewService';
 
 export default function SettingsScreen() {
   const colorScheme = useColorScheme();
@@ -20,6 +24,12 @@ export default function SettingsScreen() {
   const { restorePurchases } = useRevenueCat();
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const { t, i18n } = useTranslation();
+
+  const getAppVersion = (): string => {
+    const version = Constants.expoConfig?.version || '1.0.0';
+    return `LandmarkAI v${version}`;
+  };
 
   useEffect(() => {
     loadSubscriptionStatus();
@@ -45,12 +55,12 @@ export default function SettingsScreen() {
 
   const handleRestorePurchases = async () => {
     Alert.alert(
-      'Restore Purchases',
-      'We\'ll check for any existing purchases linked to your account.',
+      t('settings.restorePurchases'),
+      t('settings.restoreConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Restore',
+          text: t('settings.restoreButton'),
           onPress: async () => {
             try {
               setLoading(true);
@@ -71,7 +81,7 @@ export default function SettingsScreen() {
               
             } catch (error) {
               console.error('💥 Settings: Restore error:', error);
-              Alert.alert('Error', 'Failed to restore purchases. Please try again.');
+              Alert.alert(t('common.error'), t('settings.restoreError'));
             } finally {
               setLoading(false);
             }
@@ -81,29 +91,22 @@ export default function SettingsScreen() {
     );
   };
 
-  const handleLanguagePress = () => {
-    Alert.alert(
-      'Language',
-      'Language selection will be available in a future update.',
-      [{ text: 'OK' }]
-    );
-  };
 
   const handleNotificationsPress = () => {
     Alert.alert(
-      'Notifications',
-      'Notification settings will be available in a future update.',
-      [{ text: 'OK' }]
+      t('settings.notifications'),
+      t('settings.notificationsFuture'),
+      [{ text: t('common.ok') }]
     );
   };
 
   const handleSupportPress = () => {
     Alert.alert(
-      'Support',
-      'Need help? Contact our support team for assistance.',
+      t('settings.support'),
+      t('settings.supportMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Email Support', onPress: handleEmailSupport },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('settings.contactSupport'), onPress: handleEmailSupport },
       ]
     );
   };
@@ -114,7 +117,7 @@ export default function SettingsScreen() {
       await Linking.openURL(emailUrl);
     } catch (error) {
       console.error('Failed to open email client:', error);
-      Alert.alert('Error', 'Unable to open email client. Please email us directly at landmarkaiguide@gmail.com');
+      Alert.alert(t('common.error'), 'Unable to open email client. Please email us directly at landmarkaiguide@gmail.com');
     }
   };
 
@@ -124,7 +127,7 @@ export default function SettingsScreen() {
       await Linking.openURL(privacyUrl);
     } catch (error) {
       console.error('Failed to open Privacy URL:', error);
-      Alert.alert('Error', 'Unable to open Privacy Policy. Please try again later.');
+      Alert.alert(t('common.error'), 'Unable to open Privacy Policy. Please try again later.');
     }
   };
 
@@ -134,16 +137,25 @@ export default function SettingsScreen() {
       await Linking.openURL(termsUrl);
     } catch (error) {
       console.error('Failed to open Terms URL:', error);
-      Alert.alert('Error', 'Unable to open Terms of Use. Please try again later.');
+      Alert.alert(t('common.error'), 'Unable to open Terms of Use. Please try again later.');
+    }
+  };
+
+  const handleRateAppPress = async () => {
+    try {
+      await requestManualReview();
+    } catch (error) {
+      console.error('Failed to request app review:', error);
+      Alert.alert(t('common.error'), 'Unable to open App Store review. Please try again later.');
     }
   };
 
   const getThemeDisplayText = (preference: ThemePreference): string => {
     switch (preference) {
-      case 'system': return 'System Default';
-      case 'light': return 'Light Mode';
-      case 'dark': return 'Dark Mode';
-      default: return 'System Default';
+      case 'system': return t('settings.system');
+      case 'light': return t('settings.light');
+      case 'dark': return t('settings.dark');
+      default: return t('settings.system');
     }
   };
 
@@ -153,7 +165,7 @@ export default function SettingsScreen() {
         {
           options: ['Cancel', '📱 System Default', '☀️ Light Mode', '🌙 Dark Mode'],
           cancelButtonIndex: 0,
-          title: 'Choose Appearance',
+          title: t('settings.chooseAppearance'),
           message: 'Select your preferred theme',
         },
         (buttonIndex) => {
@@ -165,13 +177,80 @@ export default function SettingsScreen() {
     } else {
       // Android fallback using Alert
       Alert.alert(
-        'Choose Appearance',
+        t('settings.chooseAppearance'),
         'Select your preferred theme',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: '📱 System Default', onPress: () => setThemePreference('system') },
           { text: '☀️ Light Mode', onPress: () => setThemePreference('light') },
           { text: '🌙 Dark Mode', onPress: () => setThemePreference('dark') },
+        ]
+      );
+    }
+  };
+
+  const getCurrentLanguageDisplayText = (): string => {
+    const currentLang = i18n.language?.split('-')[0] || 'en';
+    return SUPPORTED_LANGUAGES[currentLang as SupportedLanguage] || 'English';
+  };
+
+  const handleLanguagePress = () => {
+    const getLanguageFlag = (code: string): string => {
+      switch (code) {
+        case 'en': return '🇺🇸';
+        case 'tr': return '🇹🇷';
+        case 'es': return '🇪🇸';
+        case 'fr': return '🇫🇷';
+        case 'de': return '🇩🇪';
+        case 'it': return '🇮🇹';
+        case 'zh': return '🇨🇳';
+        case 'ja': return '🇯🇵';
+        case 'pl': return '🇵🇱';
+        case 'ru': return '🇷🇺';
+        case 'pt': return '🇵🇹';
+        case 'ar': return '🇸🇦';
+        case 'ko': return '🇰🇷';
+        case 'nl': return '🇳🇱';
+        case 'sv': return '🇸🇪';
+        case 'no': return '🇳🇴';
+        case 'da': return '🇩🇰';
+        case 'cs': return '🇨🇿';
+        default: return '🌍';
+      }
+    };
+
+    const languageOptions = Object.entries(SUPPORTED_LANGUAGES).map(([code, name]) => 
+      `${getLanguageFlag(code)} ${name}`
+    );
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', ...languageOptions],
+          cancelButtonIndex: 0,
+          title: t('settings.language'),
+          message: 'Select your preferred language',
+        },
+        async (buttonIndex) => {
+          if (buttonIndex > 0) {
+            const selectedLanguageCode = Object.keys(SUPPORTED_LANGUAGES)[buttonIndex - 1] as SupportedLanguage;
+            await changeLanguage(selectedLanguageCode);
+          }
+        }
+      );
+    } else {
+      // Android fallback using Alert
+      const buttons = Object.entries(SUPPORTED_LANGUAGES).map(([code, name]) => ({
+        text: `${getLanguageFlag(code)} ${name}`,
+        onPress: async () => await changeLanguage(code as SupportedLanguage)
+      }));
+
+      Alert.alert(
+        t('settings.language'),
+        'Select your preferred language',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          ...buttons
         ]
       );
     }
@@ -223,24 +302,24 @@ export default function SettingsScreen() {
 
   const renderSubscriptionSection = () => {
     if (subscriptionStatus?.isPremium) {
-      return renderCardSection('Subscription', (
+      return renderCardSection(t('settings.sectionSubscription'), (
         <View style={[styles.premiumStatus]}>
           <IconSymbol name="crown.fill" size={24} color={colors.premium} />
           <View style={styles.premiumTexts}>
-            <ThemedText style={[styles.premiumTitle, { color: colors.premium }]}>Premium Active</ThemedText>
+            <ThemedText style={[styles.premiumTitle, { color: colors.premium }]}>{t('settings.premium')}</ThemedText>
             <ThemedText style={[styles.premiumSubtitle, { color: colors.textSecondary }]}>
-              Unlimited scans and AI chat
+              {t('settings.upgradeDesc')}
             </ThemedText>
           </View>
         </View>
       ));
     }
     
-    return renderCardSection('Subscription', (
+    return renderCardSection(t('settings.sectionSubscription'), (
       <>
         {renderSettingItem(
-          'Upgrade to Premium',
-          'Unlimited scans, AI chat, and more features',
+          t('settings.upgradeTitle'),
+          t('settings.upgradeDesc'),
           'star.fill',
           handleUpgradePress,
           true,
@@ -248,8 +327,8 @@ export default function SettingsScreen() {
           false
         )}
         {renderSettingItem(
-          'Restore Purchases',
-          'Restore previous purchases',
+          t('settings.restorePurchases'),
+          t('settings.restoreDesc'),
           'arrow.clockwise',
           handleRestorePurchases,
           true,
@@ -264,7 +343,7 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar style="auto" />
       
-      <TabHeader title="Settings" alignment="left" />
+      <TabHeader title={t('settings.title')} alignment="left" />
 
       <ScrollView 
         style={styles.scrollContainer}
@@ -272,10 +351,10 @@ export default function SettingsScreen() {
       >
         {renderSubscriptionSection()}
 
-        {renderCardSection('Preferences', (
+        {renderCardSection(t('settings.sectionPreferences'), (
           <>
             {renderSettingItem(
-              'Appearance',
+              t('settings.appearance'),
               getThemeDisplayText(preference),
               'paintpalette.fill',
               handleThemePress,
@@ -285,8 +364,8 @@ export default function SettingsScreen() {
             )}
             
             {renderSettingItem(
-              'Language',
-              'English',
+              t('settings.language'),
+              getCurrentLanguageDisplayText(),
               'globe',
               handleLanguagePress,
               true,
@@ -295,8 +374,8 @@ export default function SettingsScreen() {
             )}
             
             {renderSettingItem(
-              'Notifications',
-              'Manage your notification preferences',
+              t('settings.notifications'),
+              t('settings.notificationsDesc'),
               'bell.fill',
               handleNotificationsPress,
               true,
@@ -306,11 +385,21 @@ export default function SettingsScreen() {
           </>
         ))}
 
-        {renderCardSection('Support', (
+        {renderCardSection(t('settings.sectionSupport'), (
           <>
             {renderSettingItem(
-              'Help & Support',
-              'Get help or contact us',
+              t('settings.rateApp'),
+              t('settings.rateAppDescription'),
+              'star.fill',
+              handleRateAppPress,
+              true,
+              undefined,
+              false
+            )}
+
+            {renderSettingItem(
+              t('settings.support'),
+              t('settings.supportDesc'),
               'questionmark.circle.fill',
               handleSupportPress,
               true,
@@ -319,8 +408,8 @@ export default function SettingsScreen() {
             )}
             
             {renderSettingItem(
-              'Privacy Policy',
-              'Review our privacy practices',
+              t('settings.privacy'),
+              t('settings.privacyDesc'),
               'hand.raised.fill',
               handlePrivacyPress,
               true,
@@ -329,8 +418,8 @@ export default function SettingsScreen() {
             )}
             
             {renderSettingItem(
-              'Terms of Service',
-              'Read our terms and conditions',
+              t('settings.terms'),
+              t('settings.termsDesc'),
               'doc.text.fill',
               handleTermsPress,
               true,
@@ -341,8 +430,8 @@ export default function SettingsScreen() {
         ))}
 
         <ThemedView style={styles.appInfo}>
-          <ThemedText style={styles.appVersion}>LandmarkAI v1.0.2</ThemedText>
-          <ThemedText style={styles.appCopyright}>© 2025 LandmarkAI</ThemedText>
+          <ThemedText style={styles.appVersion}>{getAppVersion()}</ThemedText>
+          <ThemedText style={styles.appCopyright}>© 2026 LandmarkAI</ThemedText>
         </ThemedView>
       </ScrollView>
     </View>

@@ -13,7 +13,8 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { CameraOverlay } from '@/components/CameraOverlay';
 import { Colors, Shadows, BorderRadius, Typography, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { performScan, checkScanLimit } from '@/services/limitService';
+import { useTranslation } from 'react-i18next';
+// Removed limit service imports - checks now happen after photo capture
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -23,6 +24,7 @@ export default function CameraScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const { mode = 'landmark', scanAllowed } = useLocalSearchParams<{ 
     mode?: 'landmark' | 'museum'; 
     scanAllowed?: string;
@@ -40,15 +42,15 @@ export default function CameraScreen() {
   // Configure scan mode
   const scanConfig = {
     landmark: {
-      instruction: "Frame the landmark in your camera",
+      instruction: t('camera.landmarkInstruction'),
       color: colors.primary,
-      title: "Scanning Landmark...",
+      title: t('camera.scanningLandmark'),
       icon: "building.columns.fill"
     },
     museum: {
-      instruction: "Frame the artwork or museum piece clearly",
+      instruction: t('camera.artInstruction'),
       color: colors.sunsetOrange,
-      title: "Analyzing Artwork...",
+      title: t('camera.analyzingArtwork'),
       icon: "paintbrush.fill"
     }
   }[mode];
@@ -98,19 +100,6 @@ export default function CameraScreen() {
       setCapturing(true);
       setScanning(true);
 
-      // Check if scan was pre-approved (from tab/homepage)
-      if (scanAllowed !== 'true') {
-        // If not pre-approved, check scan limits (without consuming)
-        const limitResult = await checkScanLimit(false);
-        if (!limitResult.allowed) {
-          setScanning(false);
-          setCapturing(false);
-          router.push('/paywall?source=scan_limit');
-          return;
-        }
-      }
-      // If scanAllowed === 'true', we know the user can scan
-
       // Take photo
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
@@ -119,15 +108,7 @@ export default function CameraScreen() {
 
       console.log('Photo captured:', photo.uri);
 
-      // Now consume the scan (photo was successful)
-      const scanResult = await performScan();
-      if (!scanResult.allowed) {
-        // This shouldn't happen since we pre-checked, but handle gracefully
-        setScanning(false);
-        setCapturing(false);
-        router.push('/paywall?source=scan_limit');
-        return;
-      }
+      // Photo captured successfully - proceed to analysis
 
       // Capture GPS coordinates if location is enabled
       let locationCoords: string | undefined;
@@ -201,20 +182,7 @@ export default function CameraScreen() {
         const selectedImage = result.assets[0];
         console.log('Image selected from gallery:', selectedImage.uri);
 
-        // Check scan limits first (without consuming)
-        const limitCheck = await checkScanLimit(false);
-        if (!limitCheck.allowed) {
-          router.push('/paywall?source=scan_limit');
-          return;
-        }
-
-        // Now consume the scan (image was successfully selected)
-        const limitResult = await performScan();
-        if (!limitResult.allowed) {
-          // This shouldn't happen since we pre-checked, but handle gracefully
-          router.push('/paywall?source=scan_limit');
-          return;
-        }
+        // Image selected successfully - proceed to analysis
 
         // Navigate to result screen (replace camera completely)
         router.replace({
@@ -356,7 +324,7 @@ export default function CameraScreen() {
           <View style={[styles.captureButtonInner, { backgroundColor: scanConfig.color }]}>
             {capturing || scanning ? (
               <ThemedText style={styles.capturingText}>
-                {scanning ? scanConfig.title : 'Capturing...'}
+                {scanning ? scanConfig.title : t('camera.capturing')}
               </ThemedText>
             ) : (
               <IconSymbol name={scanConfig.icon} size={32} color="#FFFFFF" />

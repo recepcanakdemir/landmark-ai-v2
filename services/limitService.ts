@@ -7,7 +7,7 @@ import { LimitCheckResult, SubscriptionStatus, TrialState, UserAccessState, User
 
 const DEVICE_ID_KEY = 'landmark_device_id';
 const TRIAL_STATE_KEY = 'landmark_trial_state';
-const FREE_DAILY_LIMIT = 3;
+const FREE_DAILY_LIMIT = 0;
 const TRIAL_DURATION_DAYS = 3;
 
 /**
@@ -173,7 +173,7 @@ async function startTrial(): Promise<TrialState> {
 /**
  * Get comprehensive user access state
  */
-async function getUserAccessState(): Promise<UserAccessState> {
+export async function getUserAccessState(): Promise<UserAccessState> {
   // Check premium status first
   const subscriptionStatus = await checkPremiumStatus();
   if (subscriptionStatus.isPremium) {
@@ -453,10 +453,10 @@ export async function checkScanLimit(performScan: boolean = false): Promise<Limi
   } catch (error) {
     console.error('Error in checkScanLimit:', error);
     
-    // Return safe defaults on error
+    // Return safe defaults on error (hard paywall - no free scans)
     return {
-      allowed: true,
-      remaining: Math.max(0, FREE_DAILY_LIMIT),
+      allowed: false,
+      remaining: 0,
       isPremium: false,
       isTrialActive: false,
       scansUsed: 0,

@@ -12,12 +12,14 @@ import { LandmarkCard } from '@/components/LandmarkCard';
 import { TabHeader } from '@/components/TabHeader';
 import { Colors, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getCurrentUsageStats, checkScanLimit } from '@/services/limitService';
+import { getCurrentUsageStats } from '@/services/limitService';
 import { getScanHistory } from '@/services/storageService';
 import { LimitCheckResult, LandmarkAnalysis } from '@/types';
+import { useTranslation } from 'react-i18next';
 
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
+  const { t } = useTranslation();
   const [usageStats, setUsageStats] = useState<LimitCheckResult | null>(null);
   const [recentLandmarks, setRecentLandmarks] = useState<LandmarkAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,12 +75,6 @@ export default function HomeScreen() {
       setRecentLandmarks(recentScans);
       console.log('🏠 Loaded recent scans:', recentScans.length);
       
-      // Log what will be displayed in badges
-      const badgeText = stats?.isPremium || stats?.isTrialActive ? '∞' : Math.max(0, stats?.remaining || 0).toString();
-      console.log('🏷️ Badge will display:', badgeText, 
-                  '(isPremium:', stats?.isPremium, 
-                  ', isTrialActive:', stats?.isTrialActive, 
-                  ', remaining:', stats?.remaining, ')');
     } catch (error) {
       console.error('💥 Error loading data:', error);
       setRecentLandmarks([]); // Set empty array on error
@@ -107,41 +103,16 @@ export default function HomeScreen() {
   };
 
   const handleScanPress = async () => {
-    try {
-      // Check if user is allowed to scan (without consuming)
-      const limitResult = await checkScanLimit(false);
-      
-      if (limitResult.allowed) {
-        router.push({
-          pathname: '/camera',
-          params: { scanAllowed: 'true' }
-        });
-      } else {
-        router.push('/paywall?source=scan_limit');
-      }
-    } catch (error) {
-      console.error('Error checking scan access:', error);
-      router.push('/paywall?source=scan_limit');
-    }
+    // Navigate directly to camera - limit check will happen after photo capture
+    router.push('/camera');
   };
 
   const handleExplorePress = async () => {
-    try {
-      // Check if user is allowed to scan (without consuming)
-      const limitResult = await checkScanLimit(false);
-      
-      if (limitResult.allowed) {
-        router.push({
-          pathname: '/camera',
-          params: { mode: 'museum', scanAllowed: 'true' }
-        });
-      } else {
-        router.push('/paywall?source=scan_limit');
-      }
-    } catch (error) {
-      console.error('Error checking scan access:', error);
-      router.push('/paywall?source=scan_limit');
-    }
+    // Navigate directly to camera in museum mode - limit check will happen after photo capture
+    router.push({
+      pathname: '/camera',
+      params: { mode: 'museum' }
+    });
   };
 
 
@@ -193,8 +164,8 @@ export default function HomeScreen() {
       
       {/* Header - Fixed at top */}
       <TabHeader
-        title="Discover the World"
-        subtitle="Good morning! ✈️"
+        title={t('home.title')}
+        subtitle={t('home.subtitle')}
         titleStyle={{ fontSize: 28, lineHeight: 34 } as any}
         alignment="left"
       />
@@ -208,21 +179,19 @@ export default function HomeScreen() {
         {/* Main Action Cards */}
         <View style={styles.actionsSection}>
           <ActionCard
-            title="Scan Landmark"
-            subtitle="Discover the history behind any landmark"
+            title={t('home.scanLandmark')}
+            subtitle={t('home.scanLandmarkDesc')}
             icon="camera.fill"
             iconColor={colors.primary}
             onPress={handleScanPress}
-            badge={usageStats?.isPremium || usageStats?.isTrialActive ? '∞' : Math.max(0, usageStats?.remaining || 0).toString()}
           />
           
           <ActionCard
-            title="Scan Art"
-            subtitle="Identify artworks, sculptures & museum pieces"
+            title={t('home.scanArt')}
+            subtitle={t('home.scanArtDesc')}
             icon="paintbrush.fill"
             iconColor={colors.sunsetOrange}
             onPress={handleExplorePress}
-            badge={usageStats?.isPremium || usageStats?.isTrialActive ? '∞' : Math.max(0, usageStats?.remaining || 0).toString()}
           />
         </View>
 
@@ -230,7 +199,7 @@ export default function HomeScreen() {
         <View style={styles.recentSection}>
           <View style={styles.sectionHeader}>
             <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              Recent Discoveries
+              {t('home.recentDiscoveries')}
             </ThemedText>
           </View>
           
@@ -247,7 +216,7 @@ export default function HomeScreen() {
           ) : (
             !loading && (
               <ThemedText style={[styles.emptyMessage, { color: colors.textSecondary }]}>
-                No recent discoveries
+                {t('home.noRecentDiscoveries')}
               </ThemedText>
             )
           )}

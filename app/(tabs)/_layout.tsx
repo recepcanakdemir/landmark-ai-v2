@@ -8,11 +8,13 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Shadows, BorderRadius, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { getCurrentUsageStats, performScan } from '@/services/limitService';
+import { getCurrentUsageStats } from '@/services/limitService';
+import { useTranslation } from 'react-i18next';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { t } = useTranslation();
   const [showScanMenu, setShowScanMenu] = useState(false);
 
   const handleCameraPress = () => {
@@ -22,36 +24,21 @@ export default function TabLayout() {
   const handleScanTypeSelect = async (scanType: 'landmark' | 'art') => {
     setShowScanMenu(false);
     
+    // Navigate directly to camera - limit check will happen after photo capture
+    if (scanType === 'landmark') {
+      router.push('/camera');
+    } else {
+      router.push({
+        pathname: '/camera',
+        params: { mode: 'museum' }
+      });
+    }
+    
+    // Signal that home tab needs refresh when user returns
     try {
-      // Atomic check-and-reserve: This will increment counter if allowed
-      const limitResult = await performScan();
-      
-      if (limitResult.allowed) {
-        // Navigate to camera with scan reserved
-        if (scanType === 'landmark') {
-          router.push({
-            pathname: '/camera',
-            params: { scanReserved: 'true', refreshOnReturn: 'true' }
-          });
-        } else {
-          router.push({
-            pathname: '/camera',
-            params: { mode: 'museum', scanReserved: 'true', refreshOnReturn: 'true' }
-          });
-        }
-        
-        // Signal that home tab needs refresh when user returns
-        try {
-          await AsyncStorage.setItem('home_needs_refresh', Date.now().toString());
-        } catch (error) {
-          console.error('Error setting refresh flag:', error);
-        }
-      } else {
-        router.push('/paywall?source=scan_limit');
-      }
+      await AsyncStorage.setItem('home_needs_refresh', Date.now().toString());
     } catch (error) {
-      console.error('Error checking scan access:', error);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+      console.error('Error setting refresh flag:', error);
     }
   };
 
@@ -110,7 +97,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t('navigation.home'),
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={focused ? 26 : 24} 
@@ -124,7 +111,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="passport"
         options={{
-          title: 'Passport',
+          title: t('navigation.passport'),
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={focused ? 26 : 24} 
@@ -158,7 +145,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Collections',
+          title: t('navigation.collections'),
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={focused ? 26 : 24} 
@@ -172,7 +159,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
+          title: t('navigation.settings'),
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol 
               size={focused ? 26 : 24} 
@@ -214,7 +201,7 @@ export default function TabLayout() {
             fontWeight: '600', 
             color: colors.textPrimary 
           }}>
-            Landmark
+            {t('navigation.scanLandmark')}
           </ThemedText>
         </Pressable>
         
@@ -237,7 +224,7 @@ export default function TabLayout() {
             fontWeight: '600', 
             color: colors.textPrimary 
           }}>
-            Art
+            {t('navigation.scanArt')}
           </ThemedText>
         </Pressable>
       </View>

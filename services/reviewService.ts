@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 const REVIEW_STORAGE_KEYS = {
   FIRST_LAUNCH_COMPLETED: 'review_first_launch_completed',
   SUCCESSFUL_SCANS_COUNT: 'review_successful_scans_count',
+  FIRST_SAVE_COMPLETED: 'review_first_save_completed',
   LAST_REVIEW_REQUEST_DATE: 'review_last_request_date',
   REVIEW_REQUESTS_COUNT: 'review_requests_count',
 } as const;
@@ -75,6 +76,107 @@ export class ReviewService {
 
     } catch (error) {
       console.error('💥 Review Service: Error in app launch review check:', error);
+    }
+  }
+
+  /**
+   * Check if we should request a review after first save (landmark or collection)
+   * Called from storageService.ts when user saves for the first time
+   */
+  static async checkFirstSaveReview(): Promise<void> {
+    try {
+      console.log('💾 Review Service: Checking first save review...');
+      
+      // Only proceed on iOS
+      if (Platform.OS !== 'ios') {
+        console.log('📱 Review Service: Skipping - not iOS platform');
+        return;
+      }
+
+      // Check if this is the first save
+      const firstSaveCompleted = await AsyncStorage.getItem(REVIEW_STORAGE_KEYS.FIRST_SAVE_COMPLETED);
+      
+      if (firstSaveCompleted) {
+        console.log('💾 Review Service: Not first save - skipping');
+        return;
+      }
+
+      // Check if we can show a review
+      const canShowReview = await this.canRequestReview();
+      if (!canShowReview) {
+        console.log('⏰ Review Service: Cannot show review at this time');
+        // Mark first save as completed even if we can't show review
+        await AsyncStorage.setItem(REVIEW_STORAGE_KEYS.FIRST_SAVE_COMPLETED, 'true');
+        return;
+      }
+
+      console.log('✨ Review Service: Triggering review for first save');
+      await this.requestReview('first_save');
+      
+      // Mark first save as completed
+      await AsyncStorage.setItem(REVIEW_STORAGE_KEYS.FIRST_SAVE_COMPLETED, 'true');
+
+    } catch (error) {
+      console.error('💥 Review Service: Error in first save review check:', error);
+    }
+  }
+
+  /**
+   * Check if we should request a review after paywall interaction on app launch
+   * Called from paywall.tsx when user exits or purchases on first app opening
+   */
+  static async checkAppLaunchPaywallReview(): Promise<void> {
+    try {
+      console.log('💳 Review Service: Checking app launch paywall review...');
+      
+      // Only proceed on iOS
+      if (Platform.OS !== 'ios') {
+        console.log('📱 Review Service: Skipping - not iOS platform');
+        return;
+      }
+
+      // Check if we can show a review
+      const canShowReview = await this.canRequestReview();
+      if (!canShowReview) {
+        console.log('⏰ Review Service: Cannot show review at this time');
+        return;
+      }
+
+      console.log('✨ Review Service: Triggering review for app launch paywall interaction');
+      await this.requestReview('app_launch_paywall');
+
+    } catch (error) {
+      console.error('💥 Review Service: Error in app launch paywall review check:', error);
+    }
+  }
+
+  /**
+   * Manual review request from settings (no restrictions)
+   * Called from settings.tsx when user taps "Rate Our App"
+   */
+  static async requestManualReview(): Promise<void> {
+    try {
+      console.log('⭐ Review Service: Manual review request from settings...');
+      
+      // Only proceed on iOS
+      if (Platform.OS !== 'ios') {
+        console.log('📱 Review Service: Skipping - not iOS platform');
+        return;
+      }
+
+      // Check if StoreReview is available
+      const hasAction = await StoreReview.hasAction();
+      if (!hasAction) {
+        console.log('📱 Review Service: StoreReview action not available');
+        return;
+      }
+
+      console.log('✨ Review Service: Requesting manual review from settings');
+      await StoreReview.requestReview();
+      console.log('✅ Review Service: Manual review requested successfully');
+
+    } catch (error) {
+      console.error('💥 Review Service: Error in manual review request:', error);
     }
   }
 
@@ -248,18 +350,21 @@ export class ReviewService {
   static async getReviewStats(): Promise<{
     firstLaunchCompleted: boolean;
     successfulScansCount: number;
+    firstSaveCompleted: boolean;
     lastRequestDate: string | null;
     requestsThisYear: number;
   }> {
     try {
       const firstLaunchCompleted = await AsyncStorage.getItem(REVIEW_STORAGE_KEYS.FIRST_LAUNCH_COMPLETED);
       const scanCountStr = await AsyncStorage.getItem(REVIEW_STORAGE_KEYS.SUCCESSFUL_SCANS_COUNT);
+      const firstSaveCompleted = await AsyncStorage.getItem(REVIEW_STORAGE_KEYS.FIRST_SAVE_COMPLETED);
       const lastRequestDate = await AsyncStorage.getItem(REVIEW_STORAGE_KEYS.LAST_REVIEW_REQUEST_DATE);
       const requestCountStr = await AsyncStorage.getItem(REVIEW_STORAGE_KEYS.REVIEW_REQUESTS_COUNT);
       
       return {
         firstLaunchCompleted: !!firstLaunchCompleted,
         successfulScansCount: scanCountStr ? parseInt(scanCountStr, 10) : 0,
+        firstSaveCompleted: !!firstSaveCompleted,
         lastRequestDate,
         requestsThisYear: requestCountStr ? parseInt(requestCountStr, 10) : 0,
       };
@@ -268,6 +373,7 @@ export class ReviewService {
       return {
         firstLaunchCompleted: false,
         successfulScansCount: 0,
+        firstSaveCompleted: false,
         lastRequestDate: null,
         requestsThisYear: 0,
       };
@@ -285,6 +391,7 @@ export class ReviewService {
       await AsyncStorage.multiRemove([
         REVIEW_STORAGE_KEYS.FIRST_LAUNCH_COMPLETED,
         REVIEW_STORAGE_KEYS.SUCCESSFUL_SCANS_COUNT,
+        REVIEW_STORAGE_KEYS.FIRST_SAVE_COMPLETED,
         REVIEW_STORAGE_KEYS.LAST_REVIEW_REQUEST_DATE,
         REVIEW_STORAGE_KEYS.REVIEW_REQUESTS_COUNT,
       ]);
@@ -299,5 +406,8 @@ export class ReviewService {
 // Export individual functions for convenience
 export const checkAppLaunchReview = ReviewService.checkAppLaunchReview.bind(ReviewService);
 export const checkScanSuccessReview = ReviewService.checkScanSuccessReview.bind(ReviewService);
+export const checkFirstSaveReview = ReviewService.checkFirstSaveReview.bind(ReviewService);
+export const checkAppLaunchPaywallReview = ReviewService.checkAppLaunchPaywallReview.bind(ReviewService);
+export const requestManualReview = ReviewService.requestManualReview.bind(ReviewService);
 export const getReviewStats = ReviewService.getReviewStats.bind(ReviewService);
 export const resetReviewData = ReviewService.resetReviewData.bind(ReviewService);

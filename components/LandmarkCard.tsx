@@ -5,6 +5,7 @@ import { ThemedText } from './themed-text';
 import { IconSymbol } from './ui/icon-symbol';
 import { Colors, Shadows, BorderRadius, Typography, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { resolveImageSource } from '@/services/storageService';
 
 interface LandmarkCardProps {
   id: string;
@@ -173,21 +174,24 @@ export const LandmarkCard: React.FC<LandmarkCardProps> = ({
     >
       {/* Image Section */}
       <View style={[styles.imageContainer, { height: config.imageHeight }]}>
-        {imageUrl ? (
-          <Image 
-            source={{ uri: imageUrl }}
-            style={styles.image}
-            contentFit="cover"
-          />
-        ) : (
-          <View style={[styles.imagePlaceholder, { backgroundColor: colors.backgroundSecondary }]}>
-            <IconSymbol 
-              name="building.columns.fill" 
-              size={32} 
-              color={colors.primary} 
+        {(() => {
+          const resolvedImageUri = resolveImageSource(imageUrl);
+          return resolvedImageUri ? (
+            <Image 
+              source={{ uri: resolvedImageUri }}
+              style={styles.image}
+              contentFit="cover"
             />
-          </View>
-        )}
+          ) : (
+            <View style={[styles.imagePlaceholder, { backgroundColor: colors.backgroundSecondary }]}>
+              <IconSymbol 
+                name="building.columns.fill" 
+                size={32} 
+                color={colors.primary} 
+              />
+            </View>
+          );
+        })()}
         
         {/* Overlay Elements */}
         

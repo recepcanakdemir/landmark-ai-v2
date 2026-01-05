@@ -2,7 +2,7 @@
   "expo": {
     "name": "LandmarkAI",
     "slug": "LandmarkAI-v2",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "landmarkaiv2",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.recapp.landmarkai",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "appleTeamId": "3WL9FYSV99"
     },
     "android": {
