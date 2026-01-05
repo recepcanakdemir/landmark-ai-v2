@@ -13,11 +13,13 @@ import { Colors, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LandmarkAnalysis } from '@/types';
 import { getSavedLandmarks, removeLandmark } from '@/services/storageService';
+import { useTranslation } from 'react-i18next';
 
 
 export default function PassportScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { t } = useTranslation();
   const [landmarks, setLandmarks] = useState<LandmarkAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -48,7 +50,7 @@ export default function PassportScreen() {
       console.log('Loaded saved landmarks:', validLandmarks.length);
     } catch (error) {
       console.error('Error loading landmarks:', error);
-      Alert.alert('Error', 'Failed to load your travel collection');
+      Alert.alert(t('common.error'), t('passport.loadError'));
     } finally {
       setLoading(false);
     }
@@ -66,7 +68,6 @@ export default function PassportScreen() {
       pathname: '/result',
       params: { 
         landmarkId: landmark.id,
-        imageUri: landmark.imageUrl || '',
         savedLandmark: JSON.stringify(landmark),
         source: 'saved'
       }
@@ -79,12 +80,12 @@ export default function PassportScreen() {
 
   const handleDeleteLandmark = (landmark: LandmarkAnalysis) => {
     Alert.alert(
-      "Remove Landmark",
-      `Remove "${landmark.name}" from your passport?`,
+      t('passport.removeLandmark'),
+      t('passport.removeConfirm', { landmarkName: landmark.name }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t('common.cancel'), style: "cancel" },
         { 
-          text: "Remove", 
+          text: t('common.remove'), 
           style: "destructive", 
           onPress: () => deleteLandmark(landmark.id, landmark.name)
         }
@@ -101,10 +102,10 @@ export default function PassportScreen() {
       setLandmarks(prev => prev.filter(landmark => landmark.id !== landmarkId));
       
       // Optional: Show success message
-      Alert.alert('Removed', `"${landmarkName}" has been removed from your passport.`);
+      Alert.alert(t('passport.removed'), t('passport.removedSuccess', { landmarkName }));
     } catch (error) {
       console.error('Error deleting landmark:', error);
-      Alert.alert('Error', 'Failed to remove landmark. Please try again.');
+      Alert.alert(t('common.error'), t('passport.removeError'));
     }
   };
 
@@ -144,13 +145,13 @@ export default function PassportScreen() {
           color={colors.primary} 
         />
         <ThemedText style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-          Your Passport is Empty
+          {t('passport.title')}
         </ThemedText>
         <ThemedText style={[styles.emptyDescription, { color: colors.textSecondary }]}>
-          Start scanning landmarks to build your personal travel collection
+          {t('passport.emptyStateDesc')}
         </ThemedText>
         <CustomButton
-          title="Scan Landmark"
+          title={t('passport.scanLandmark')}
           onPress={handleScanPress}
           variant="primary"
           size="large"
@@ -168,10 +169,10 @@ export default function PassportScreen() {
       
       {/* Header */}
       <TabHeader
-        title="My Passport"
+        title={t('passport.title')}
         subtitle={landmarks.length > 0 
           ? `${landmarks.length} landmark${landmarks.length !== 1 ? 's' : ''} discovered`
-          : 'Your travel collection'
+          : t('passport.subtitle')
         }
         alignment="left"
       />

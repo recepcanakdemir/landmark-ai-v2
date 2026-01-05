@@ -11,6 +11,8 @@ import { Colors, BorderRadius, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useRevenueCat } from '@/providers/RevenueCatProvider';
 import { RevenueCatPackage } from '@/types';
+import { useTranslation } from 'react-i18next';
+import { checkAppLaunchPaywallReview } from '@/services/reviewService';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -18,7 +20,20 @@ export default function PaywallScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { source } = useLocalSearchParams<{ source?: string }>();
+  const { t } = useTranslation();
+  const { 
+    source,
+    imageUri,
+    locationCoords,
+    scanType,
+    resumeScan 
+  } = useLocalSearchParams<{ 
+    source?: string;
+    imageUri?: string;
+    locationCoords?: string;
+    scanType?: string;
+    resumeScan?: string;
+  }>();
   
   // RevenueCat integration
   const { 
@@ -39,9 +54,9 @@ export default function PaywallScreen() {
   }, [currentOffering]);
 
   useEffect(() => {
-    // Redirect if user is already pro
+    // Redirect if user is already pro using smart navigation
     if (isPro) {
-      router.back();
+      handleSmartNavigation(true);
     }
   }, [isPro]);
 
@@ -115,7 +130,7 @@ export default function PaywallScreen() {
       
       if (success) {
         // Success handling is done in the RevenueCat provider
-        handleSmartNavigation();
+        handleSmartNavigation(true);
       }
       // Error handling is also done in the RevenueCat provider
       
@@ -142,7 +157,7 @@ export default function PaywallScreen() {
       // If restore was successful, navigate away from paywall
       if (restoreSuccess) {
         console.log('✅ Paywall: Restore successful - navigating away');
-        handleSmartNavigation();
+        handleSmartNavigation(true);
       }
       // If no purchases found, user stays on paywall (RevenueCat shows alert)
       
@@ -154,16 +169,39 @@ export default function PaywallScreen() {
   };
 
   const handleClose = () => {
-    handleSmartNavigation();
+    handleSmartNavigation(false);
   };
 
-  const handleSmartNavigation = () => {
+  const handleSmartNavigation = (isPurchaseSuccess = false) => {
     // Smart navigation based on how the paywall was opened
-    if (source === 'app_launch') {
-      // If opened from app launch, navigate to main tabs
-      // since there's no previous screen to go back to
+    if (resumeScan === 'true' && imageUri && source === 'ai_analysis') {
+      if (isPurchaseSuccess) {
+        // User bought subscription - continue scan
+        console.log('🔄 Paywall: Resuming scan with AI analysis after purchase');
+        router.replace({
+          pathname: '/result',
+          params: {
+            imageUri,
+            source: 'new',
+            scanType: scanType || 'landmark',
+            ...(locationCoords && { locationCoords }),
+            forceAnalysis: 'true'
+          }
+        });
+      } else {
+        // User exited paywall - cancel scan, go home
+        console.log('🏠 Paywall: User exited from AI analysis - canceling scan');
+        router.replace('/(tabs)');
+      }
+    } else if (source === 'app_launch') {
+      // If opened from app launch, navigate to main tabs and trigger review
       console.log('🏠 Paywall: Navigating to main tabs (app launch source)');
       router.replace('/(tabs)');
+      
+      // Trigger review for app launch paywall interaction
+      checkAppLaunchPaywallReview().catch(error => {
+        console.error('💥 Error in app launch paywall review check:', error);
+      });
     } else {
       // For other sources (settings, scan_limit), go back normally
       console.log('🔙 Paywall: Going back to previous screen');
@@ -208,7 +246,7 @@ export default function PaywallScreen() {
       <View style={[styles.container, styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
         <ThemedText style={[styles.loadingText, { color: colors.textSecondary }]}>
-          Loading subscription plans...
+          {t('paywall.loadingPlans')}
         </ThemedText>
       </View>
     );
@@ -252,7 +290,7 @@ export default function PaywallScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <TouchableOpacity style={styles.restoreButton} onPress={handleRestore}>
           <ThemedText style={[styles.restoreText, { color: colors.textTertiary }]}>
-            Restore
+            {t('paywall.restore')}
           </ThemedText>
         </TouchableOpacity>
         <TouchableOpacity style={styles.closeButton} onPress={handleClose}>
@@ -277,10 +315,10 @@ export default function PaywallScreen() {
         {/* Main Title */}
         <View style={styles.titleSection}>
           <ThemedText style={[styles.mainTitle, { color: colors.textPrimary }]}>
-            Get Unlimited Access
+            {t('paywall.title')}
           </ThemedText>
           <ThemedText style={[styles.subtitle, { color: colors.textSecondary }]}>
-            Your personal travel historian
+            {t('paywall.subtitle')}
           </ThemedText>
         </View>
 
@@ -289,19 +327,19 @@ export default function PaywallScreen() {
           <View style={styles.featureItem}>
             <IconSymbol name="camera.viewfinder" size={18} color={colors.primary} />
             <ThemedText style={[styles.featureText, { color: colors.textPrimary }]}>
-              Unlimited landmark & Art identification
+              {t('paywall.features.unlimitedScans')}
             </ThemedText>
           </View>
           <View style={styles.featureItem}>
             <IconSymbol name="sparkles" size={18} color={colors.primary} />
             <ThemedText style={[styles.featureText, { color: colors.textPrimary }]}>
-              Detailed AI analysis & history
+              {t('paywall.features.aiAnalysis')}
             </ThemedText>
           </View>
           <View style={styles.featureItem}>
             <IconSymbol name="globe" size={18} color={colors.primary} />
             <ThemedText style={[styles.featureText, { color: colors.textPrimary }]}>
-              Save & collect places
+              {t('paywall.features.saveCollect')}
             </ThemedText>
           </View>
         </View>
@@ -309,7 +347,7 @@ export default function PaywallScreen() {
         {/* Trial Toggle */}
         <View style={styles.trialSection}>
           <ThemedText style={[styles.trialLabel, { color: colors.textPrimary }]}>
-            Enable Free Trial
+            {t('paywall.enableFreeTrial')}
           </ThemedText>
           <Switch
             value={isTrialEnabled}
@@ -343,7 +381,7 @@ export default function PaywallScreen() {
                 >
                   {isPopular && (
                     <View style={[styles.bestOfferTag, { backgroundColor: cardColor }]}>
-                      <ThemedText style={styles.bestOfferText}>BEST OFFER</ThemedText>
+                      <ThemedText style={styles.bestOfferText}>{t('paywall.plan.bestOffer')}</ThemedText>
                     </View>
                   )}
                   
@@ -355,7 +393,7 @@ export default function PaywallScreen() {
                       {/* Show auto-renewal under plan name for subscription packages */}
                       {pkg.packageType !== 'LIFETIME' && (
                         <ThemedText style={[styles.autoRenewText, { color: colors.textTertiary }]}>
-                          Auto-renews
+                          {t('paywall.plan.autoRenews')}
                         </ThemedText>
                       )}
                     </View>
@@ -365,10 +403,10 @@ export default function PaywallScreen() {
                       {pkg.packageType === 'WEEKLY' && isTrialEnabled ? (
                         <View style={styles.trialPricing}>
                           <ThemedText style={[styles.trialText, { color: colors.success }]}>
-                            3 days free
+                            {t('paywall.plan.daysFree', { days: 3 })}
                           </ThemedText>
                           <ThemedText style={[styles.thenText, { color: colors.textSecondary }]}>
-                            then {pkg.product.priceString}/week
+                            {t('paywall.plan.then', { price: pkg.product.priceString })}
                           </ThemedText>
                         </View>
                       ) : (
@@ -377,8 +415,8 @@ export default function PaywallScreen() {
                             {pkg.product.priceString}
                           </ThemedText>
                           <ThemedText style={[styles.planPeriod, { color: colors.textSecondary }]}>
-                            {pkg.packageType === 'LIFETIME' ? 'one-time' : 
-                             pkg.packageType === 'ANNUAL' ? '/ year' : '/ week'}
+                            {pkg.packageType === 'LIFETIME' ? t('paywall.plan.oneTime') : 
+                             pkg.packageType === 'ANNUAL' ? t('paywall.plan.perYear') : t('paywall.plan.perWeek')}
                           </ThemedText>
                         </View>
                       )}
@@ -438,7 +476,7 @@ export default function PaywallScreen() {
         <View style={styles.bottomFooter}>
           <TouchableOpacity style={styles.footerLeft} onPress={handleTermsPress}>
             <ThemedText style={[styles.legalLink, { color: colors.textTertiary }]}>
-              Terms
+              {t('paywall.legal.terms')}
             </ThemedText>
           </TouchableOpacity>
           
@@ -446,14 +484,14 @@ export default function PaywallScreen() {
             <IconSymbol name="checkmark.shield.fill" size={16} color={colors.success} />
             <ThemedText style={[styles.securityText, { color: colors.textSecondary }]}>
               {isTrialEnabled && selectedPackage?.packageType === 'WEEKLY' 
-                ? 'Cancel anytime during trial' 
-                : 'Secure payments'}
+                ? t('paywall.security.cancelAnytime') 
+                : t('paywall.security.securePayments')}
             </ThemedText>
           </View>
           
           <TouchableOpacity style={styles.footerRight} onPress={handlePrivacyPress}>
             <ThemedText style={[styles.legalLink, { color: colors.textTertiary }]}>
-              Privacy
+              {t('paywall.legal.privacy')}
             </ThemedText>
           </TouchableOpacity>
         </View>

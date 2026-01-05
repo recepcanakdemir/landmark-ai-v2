@@ -13,8 +13,10 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Shadows, BorderRadius, Typography, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LandmarkAnalysis, NearbyPlace } from '@/types';
-import { analyzeImage } from '@/services/aiService';
-import { saveLandmark, removeLandmark, isLandmarkSaved, addToScanHistory, saveCollection, removeCollection, isCollectionSaved } from '@/services/storageService';
+import { analyzeImage, SupportedAILanguage } from '@/services/aiService';
+import { useTranslation } from 'react-i18next';
+import { saveLandmark, removeLandmark, isLandmarkSaved, addToScanHistory, saveCollection, removeCollection, isCollectionSaved, resolveImageSource } from '@/services/storageService';
+import { getUserAccessState } from '@/services/limitService';
 import { checkScanSuccessReview } from '@/services/reviewService';
 import { enrichNearbyPlaces, formatDistance, getPlaceTypeIcon } from '@/services/placesService';
 import { ScanningAnimation } from '@/components/ScanningAnimation';
@@ -45,13 +47,15 @@ export default function ResultScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
+  const { i18n, t } = useTranslation();
   
-  const { imageUri, savedLandmark, source = 'new', locationCoords, scanType = 'landmark' } = useLocalSearchParams<{ 
+  const { imageUri, savedLandmark, source = 'new', locationCoords, scanType = 'landmark', forceAnalysis } = useLocalSearchParams<{ 
     imageUri?: string; 
     savedLandmark?: string;
     source?: 'new' | 'saved' | 'recent';
     locationCoords?: string;
     scanType?: 'landmark' | 'museum';
+    forceAnalysis?: string;
   }>();
 
   const [landmark, setLandmark] = useState<LandmarkAnalysis | null>(null);
@@ -62,70 +66,157 @@ export default function ResultScreen() {
   const [isSaved, setIsSaved] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(null);
+  
+  // Collapsible sections state
+  const [expandedBuilt, setExpandedBuilt] = useState(false);
+  const [expandedArchitect, setExpandedArchitect] = useState(false);
+  const [expandedArchitecture, setExpandedArchitecture] = useState(false);
+  const [expandedEra, setExpandedEra] = useState(false);
+  const [expandedArtist, setExpandedArtist] = useState(false);
+  const [expandedMedium, setExpandedMedium] = useState(false);
+  const [expandedStyle, setExpandedStyle] = useState(false);
 
   useEffect(() => {
     loadLandmarkData();
   }, [imageUri, savedLandmark]);
 
   useEffect(() => {
-    if (landmark) checkSavedStatus();
-  }, [landmark]);
+    if (landmark) {
+      checkSavedStatus();
+      // Debug logging
+      console.log('🔍 Result screen debug:', {
+        source,
+        nearbyPlacesLength: nearbyPlaces.length,
+        enrichingNearby,
+        landmarkScanType: landmark?.scanType,
+        showDiscoverButton: nearbyPlaces.length === 0 && !enrichingNearby && (source === 'saved' || source === 'recent'),
+        hasSearchQueries: landmark?.nearbySearchQueries?.length || 0
+      });
+    }
+  }, [landmark, nearbyPlaces, enrichingNearby, source]);
 
   const loadLandmarkData = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // 1. Kaydedilmiş veri varsa onu kullan
+      // 1. PRIORITY: If we have saved landmark data, use it immediately (no scanning)
       if (savedLandmark) {
+        console.log('Loading saved landmark data - skipping AI analysis');
         const data = JSON.parse(savedLandmark);
         setLandmark(data);
         if (data.nearbyMustSeePlaces?.length > 0) {
           setNearbyPlaces(data.nearbyMustSeePlaces);
         } else if (data.nearbySearchQueries) {
-          // Kayıtlı ama yerler yüklenmemişse yükle
+          // Saved but places not loaded, load them
           enrichNearbyPlacesIfAvailable(data);
         }
+        setLoading(false); // Immediately stop loading for saved data
+        return;
+      }
+      
+      // 2. Check if this is a forced analysis after subscription (skip access check)
+      if (forceAnalysis === 'true' && imageUri) {
+        console.log('Force analysis detected - user just subscribed, proceeding with AI analysis');
+        await performAIAnalysis(imageUri, locationCoords, scanType as 'landmark' | 'museum');
         return;
       }
 
-      // 2. Yoksa ve resim varsa analiz et
+      // 3. If no saved data and we have an image, perform AI analysis
       if (imageUri) {
         console.log('Starting Analysis...');
         
-        // Parse location coordinates if provided
-        let parsedLocation: { lat: number; lng: number } | undefined;
-        if (locationCoords) {
+        // Start with scanning animation for ALL users
+        setLoading(true);
+        
+        // Delay access check to let users see scanning animation first
+        setTimeout(async () => {
           try {
-            parsedLocation = JSON.parse(locationCoords);
-            console.log('Using location context for AI analysis:', parsedLocation);
+            // Check user access state after animation delay
+            const accessState = await getUserAccessState();
+            console.log('User access state:', accessState);
+            
+            if (accessState.type === 'free') {
+              // Free user - redirect to paywall with scan context to resume later
+              console.log('Free user detected - redirecting to paywall with scan context');
+              setLoading(false);
+              router.replace({
+                pathname: '/paywall',
+                params: {
+                  source: 'ai_analysis',
+                  imageUri: imageUri,
+                  locationCoords: locationCoords || '',
+                  scanType: scanType,
+                  resumeScan: 'true'
+                }
+              });
+              return;
+            }
+            
+            // Premium/Trial user - proceed with AI analysis
+            console.log('Premium/Trial user - proceeding with AI analysis');
+            await performAIAnalysis(imageUri, locationCoords, scanType as 'landmark' | 'museum');
+            
           } catch (error) {
-            console.log('Failed to parse location coordinates:', error);
+            console.error('Error during access check or AI analysis:', error);
+            setError('Could not identify landmark.');
+            setLoading(false);
           }
-        }
-        
-        const analysis = await analyzeImage(imageUri, parsedLocation, scanType as 'landmark' | 'museum');
-        setLandmark(analysis);
-        
-        // Add to scan history (regardless of whether user saves to passport)
-        try {
-          await addToScanHistory(analysis);
-          console.log('Added to scan history:', analysis.name);
-        } catch (error) {
-          console.error('Failed to add to scan history:', error);
-          // Don't fail the analysis if scan history fails
-        }
-        
-        // Check for scan success review after successful analysis
-        // This runs independently and won't block the UI
-        checkScanSuccessReview().catch(error => {
-          console.error('💥 Error in scan success review check:', error);
-        });
-        
-        enrichNearbyPlacesIfAvailable(analysis);
+        }, 2500); // 2.5 seconds of scanning animation
+        return;
       }
+
+      // 4. If no saved data and no image, show error
+      setError('No landmark data or image provided.');
+      setLoading(false);
     } catch (err) {
       console.error(err);
+      setError('Could not identify landmark.');
+      setLoading(false);
+    }
+  };
+
+  // Extract AI analysis logic to reuse for force analysis
+  const performAIAnalysis = async (imageUri: string, locationCoords?: string, scanType: 'landmark' | 'museum' = 'landmark') => {
+    try {
+      console.log('Performing AI analysis for image:', imageUri);
+      
+      // Parse location coordinates if provided
+      let parsedLocation: { lat: number; lng: number } | undefined;
+      if (locationCoords) {
+        try {
+          parsedLocation = JSON.parse(locationCoords);
+          console.log('Using location context for AI analysis:', parsedLocation);
+        } catch (error) {
+          console.log('Failed to parse location coordinates:', error);
+        }
+      }
+      
+      // Get current language for AI analysis
+      const currentLanguage = (i18n.language?.split('-')[0] || 'en') as SupportedAILanguage;
+      console.log('Using language for AI analysis:', currentLanguage);
+      
+      const analysis = await analyzeImage(imageUri, parsedLocation, scanType, currentLanguage);
+      setLandmark(analysis);
+      
+      // Add to scan history (regardless of whether user saves to passport)
+      try {
+        await addToScanHistory(analysis);
+        console.log('Added to scan history:', analysis.name);
+      } catch (error) {
+        console.error('Failed to add to scan history:', error);
+        // Don't fail the analysis if scan history fails
+      }
+      
+      // Check for scan success review after successful analysis
+      checkScanSuccessReview().catch(error => {
+        console.error('💥 Error in scan success review check:', error);
+      });
+      
+      enrichNearbyPlacesIfAvailable(analysis);
+      
+    } catch (error) {
+      console.error('Error during AI analysis:', error);
       setError('Could not identify landmark.');
     } finally {
       setLoading(false);
@@ -189,7 +280,7 @@ export default function ResultScreen() {
       } else {
         await saveCollection(landmark);
         setIsSaved(true);
-        Alert.alert('Saved', 'Added to your Collections.');
+        Alert.alert(t('common.saved'), t('result.addToCollection'));
       }
     } else {
       // Landmarks go to Passport
@@ -199,7 +290,7 @@ export default function ResultScreen() {
       } else {
         await saveLandmark(landmark);
         setIsSaved(true);
-        Alert.alert('Saved', 'Added to your Passport.');
+        Alert.alert(t('common.saved'), t('result.addToCollection'));
       }
     }
   };
@@ -237,7 +328,7 @@ export default function ResultScreen() {
       const fallbackUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
       Linking.openURL(fallbackUrl).catch(err => {
         console.error('Failed to open fallback URL:', err);
-        Alert.alert('Error', 'Could not open maps application');
+        Alert.alert(t('common.error'), 'Could not open maps application');
       });
     }
   };
@@ -282,6 +373,49 @@ export default function ResultScreen() {
           </ThemedText>
         </View>
       </View>
+    );
+  };
+
+  const renderCollapsibleInfoRow = (
+    icon: string, 
+    label: string, 
+    value?: string | number,
+    isExpanded?: boolean,
+    onToggle?: () => void
+  ) => {
+    if (!value) return null;
+    
+    const valueStr = String(value);
+    
+    return (
+      <Pressable 
+        style={[
+          styles.infoRow, 
+          { flex: isExpanded ? 2 : 1 } // Dynamic flex: expanded items take 2x space
+        ]} 
+        onPress={onToggle}
+      >
+        <View style={[styles.infoIconBox, { backgroundColor: colors.backgroundSecondary }]}>
+          <IconSymbol name={icon as any} size={18} color={colors.textPrimary} />
+        </View>
+        <View style={styles.infoTextContainer}>
+          <ThemedText style={[styles.infoLabel, { color: colors.textSecondary }]}>{label}</ThemedText>
+          <ThemedText 
+            style={[styles.infoValue, { color: colors.textPrimary }]}
+            numberOfLines={isExpanded ? undefined : 2}
+          >
+            {valueStr}
+          </ThemedText>
+        </View>
+        {/* Always show chevron for collapsible sections */}
+        <View style={styles.chevronContainer}>
+          <IconSymbol 
+            name={isExpanded ? "chevron.up" : "chevron.down"} 
+            size={16} 
+            color={colors.textSecondary} 
+          />
+        </View>
+      </Pressable>
     );
   };
 
@@ -353,7 +487,7 @@ export default function ResultScreen() {
           <View style={styles.mapsIndicator}>
             <IconSymbol name="map.fill" size={10} color={colors.primary} />
             <ThemedText style={[styles.mapsIndicatorText, { color: colors.primary }]}>
-              Tap to view in Maps
+              {t('result.viewOnMap')}
             </ThemedText>
           </View>
         </View>
@@ -368,7 +502,7 @@ export default function ResultScreen() {
       <View style={[styles.container, { backgroundColor: '#000' }]}>
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.loadingText}>Identifying Landmark...</Text>
+          <Text style={styles.loadingText}>{t('scanning.landmark.analyzing')}</Text>
         </View>
       </View>
     );
@@ -379,9 +513,9 @@ export default function ResultScreen() {
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.centerContent}>
           <IconSymbol name="exclamationmark.triangle" size={48} color={colors.textSecondary} />
-          <ThemedText style={{ marginTop: 16 }}>{error || 'Something went wrong'}</ThemedText>
+          <ThemedText style={{ marginTop: 16 }}>{error || t('common.error')}</ThemedText>
           <Pressable onPress={() => router.back()} style={{ marginTop: 20, padding: 10 }}>
-            <ThemedText style={{ color: colors.primary }}>Go Back</ThemedText>
+            <ThemedText style={{ color: colors.primary }}>{t('common.back')}</ThemedText>
           </Pressable>
         </View>
       </View>
@@ -405,7 +539,7 @@ export default function ResultScreen() {
             })} 
             style={styles.headerChatButton}
           >
-            <ThemedText style={styles.headerButtonText}>Chat with AI</ThemedText>
+            <ThemedText style={styles.headerButtonText}>{t('result.chatWithAI')}</ThemedText>
             <IconSymbol name="message.fill" size={20} color="#FFFFFF" />
           </Pressable>
           <Pressable onPress={() => router.back()} style={styles.headerButton}>
@@ -423,7 +557,7 @@ export default function ResultScreen() {
       >
         {/* Scanned Photo - Full Width */}
         <View style={styles.imageContainer}>
-          <Image source={{ uri: imageUri || landmark.imageUrl }} style={styles.image} contentFit="cover" />
+          <Image source={{ uri: resolveImageSource(imageUri || landmark.imageUrl) || imageUri || landmark.imageUrl }} style={styles.image} contentFit="cover" />
           {/* Confidence Badge Overlay */}
           {landmark.accuracy && (
             <View style={styles.imageConfidenceBadge}>
@@ -465,20 +599,20 @@ export default function ResultScreen() {
         {/* Quick Facts Grid */}
         {(landmark.yearBuilt || landmark.architecturalStyle || landmark.architect || landmark.artist || landmark.medium || landmark.artMovement || landmark.artStyle || landmark.historicalEra) && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Quick Facts</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.quickFacts')}</ThemedText>
             <View style={styles.factsGrid}>
               {landmark.scanType === 'museum' ? (
                 <>
-                  {renderInfoRow('person.fill', 'Artist', landmark.artist)}
-                  {renderInfoRow('calendar', 'Era', landmark.historicalEra)}
-                  {renderInfoRow('paintbrush.fill', 'Style', landmark.artStyle || landmark.artMovement)}
-                  {renderInfoRow('hammer.fill', 'Medium', landmark.medium)}
+                  {renderCollapsibleInfoRow('person.fill', 'Artist', landmark.artist, expandedArtist, () => setExpandedArtist(!expandedArtist))}
+                  {renderCollapsibleInfoRow('calendar', 'Era', landmark.historicalEra, expandedEra, () => setExpandedEra(!expandedEra))}
+                  {renderCollapsibleInfoRow('paintbrush.fill', 'Style', landmark.artStyle || landmark.artMovement, expandedStyle, () => setExpandedStyle(!expandedStyle))}
+                  {renderCollapsibleInfoRow('hammer.fill', 'Medium', landmark.medium, expandedMedium, () => setExpandedMedium(!expandedMedium))}
                 </>
               ) : (
                 <>
-                  {renderInfoRow('calendar', 'Built', landmark.yearBuilt)}
-                  {renderInfoRow('person.fill', 'Architect', landmark.architect)}
-                  {renderInfoRow('building.columns.fill', 'Architecture', landmark.architecturalStyle)}
+                  {renderCollapsibleInfoRow('calendar', 'Built', landmark.yearBuilt, expandedBuilt, () => setExpandedBuilt(!expandedBuilt))}
+                  {renderCollapsibleInfoRow('person.fill', 'Architect', landmark.architect, expandedArchitect, () => setExpandedArchitect(!expandedArchitect))}
+                  {renderCollapsibleInfoRow('building.columns.fill', 'Architecture', landmark.architecturalStyle, expandedArchitecture, () => setExpandedArchitecture(!expandedArchitecture))}
                 </>
               )}
             </View>
@@ -488,7 +622,7 @@ export default function ResultScreen() {
         {/* Description */}
         {landmark.description && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>About</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.about')}</ThemedText>
             <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
               {landmark.description}
             </ThemedText>
@@ -498,7 +632,7 @@ export default function ResultScreen() {
         {/* Historical Significance */}
         {landmark.history && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Historical Significance</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.historicalSignificance')}</ThemedText>
             <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
               {landmark.history}
             </ThemedText>
@@ -509,7 +643,7 @@ export default function ResultScreen() {
         {landmark.culturalSignificance && (
           <View style={styles.section}>
             <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              {landmark.scanType === 'museum' ? 'Artistic Significance' : 'Cultural Significance'}
+              {landmark.scanType === 'museum' ? t('result.artisticSignificance') : t('result.culturalSignificance')}
             </ThemedText>
             <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
               {landmark.culturalSignificance}
@@ -523,7 +657,7 @@ export default function ResultScreen() {
             {/* Estimated Value */}
             {landmark.estimatedValue && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Estimated Value</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.estimatedValue')}</ThemedText>
                 <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
                   {landmark.estimatedValue}
                 </ThemedText>
@@ -533,7 +667,7 @@ export default function ResultScreen() {
             {/* Art Style Analysis */}
             {landmark.artStyle && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Art Style</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.artStyle')}</ThemedText>
                 <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
                   {landmark.artStyle}
                 </ThemedText>
@@ -543,7 +677,7 @@ export default function ResultScreen() {
             {/* Historical Era Context */}
             {landmark.historicalEra && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Historical Era</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.historicalEra')}</ThemedText>
                 <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
                   {landmark.historicalEra}
                 </ThemedText>
@@ -553,7 +687,7 @@ export default function ResultScreen() {
             {/* Expert Explanation */}
             {landmark.museumExplanation && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Expert Analysis</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.expertAnalysis')}</ThemedText>
                 <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
                   {landmark.museumExplanation}
                 </ThemedText>
@@ -563,7 +697,7 @@ export default function ResultScreen() {
             {/* Historical Context */}
             {landmark.historicalContext && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Historical Context</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.historicalContext')}</ThemedText>
                 <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
                   {landmark.historicalContext}
                 </ThemedText>
@@ -573,7 +707,7 @@ export default function ResultScreen() {
             {/* Technique */}
             {landmark.technique && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Technique</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.technique')}</ThemedText>
                 <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
                   {landmark.technique}
                 </ThemedText>
@@ -583,7 +717,7 @@ export default function ResultScreen() {
             {/* Dimensions */}
             {landmark.dimensions && (
               <View style={styles.section}>
-                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Dimensions</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.dimensions')}</ThemedText>
                 <ThemedText style={[styles.bodyText, { color: colors.textSecondary }]}>
                   {landmark.dimensions}
                 </ThemedText>
@@ -595,7 +729,7 @@ export default function ResultScreen() {
         {/* Fun Facts */}
         {landmark.funFacts && landmark.funFacts.length > 0 && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Did You Know?</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.didYouKnow')}</ThemedText>
             {landmark.funFacts.map((fact, i) => (
               <View key={i} style={styles.factRow}>
                 <View style={[styles.factBullet, { backgroundColor: colors.primary }]} />
@@ -610,7 +744,7 @@ export default function ResultScreen() {
         {/* FAQ Section */}
         {landmark.faq && landmark.faq.length > 0 && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Frequently Asked Questions</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.frequentlyAskedQuestions')}</ThemedText>
             {landmark.faq.map((faqItem, i) => (
               <View key={i} style={[styles.faqItem, { backgroundColor: colors.backgroundSecondary }]}>
                 <Pressable
@@ -641,7 +775,7 @@ export default function ResultScreen() {
         {/* Visiting Tips */}
         {landmark.visitingTips && landmark.visitingTips.length > 0 && (
           <View style={styles.section}>
-            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Visiting Tips</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.visitingTips')}</ThemedText>
             {landmark.visitingTips.map((tip, i) => (
               <View key={i} style={styles.tipRow}>
                 <IconSymbol name="lightbulb.fill" size={14} color={colors.warning} />
@@ -654,17 +788,17 @@ export default function ResultScreen() {
         )}
 
         {/* Nearby Places - Only for landmarks, not museum pieces */}
-        {landmark.scanType !== 'museum' && (nearbyPlaces.length > 0 || enrichingNearby) && (
+        {landmark.scanType !== 'museum' && (nearbyPlaces.length > 0 || enrichingNearby || ((source === 'saved' || source === 'recent') && nearbyPlaces.length === 0)) && (
           <View style={styles.section}>
             <View style={styles.sectionHeaderWithToggle}>
-              <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>Nearby Gems</ThemedText>
+              <ThemedText style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('result.nearbyGems')}</ThemedText>
               {nearbyPlaces.length > 0 && (
                 <Pressable 
                   style={[styles.viewToggleButton, { backgroundColor: colors.backgroundSecondary }]}
                   onPress={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
                 >
                   <ThemedText style={[styles.toggleButtonText, { color: colors.textSecondary }]}>
-                    {viewMode === 'list' ? 'Open Map' : 'Show List'}
+                    {viewMode === 'list' ? t('result.openMap') : t('result.showList')}
                   </ThemedText>
                   <IconSymbol 
                     name={viewMode === 'list' ? "map.fill" : "list.bullet"} 
@@ -678,7 +812,7 @@ export default function ResultScreen() {
               <View style={styles.loadingNearby}>
                 <ActivityIndicator color={colors.primary} />
                 <ThemedText style={[styles.loadingNearbyText, { color: colors.textSecondary }]}>
-                  Finding nearby places...
+                  {t('result.loadingNearby')}
                 </ThemedText>
               </View>
             ) : nearbyPlaces.length > 0 ? (
@@ -733,6 +867,48 @@ export default function ResultScreen() {
                   </MapView>
                 </View>
               )
+            ) : nearbyPlaces.length === 0 && !enrichingNearby && (source === 'saved' || source === 'recent') ? (
+              <Pressable
+                style={[styles.discoverButton, { backgroundColor: colors.primary }]}
+                onPress={async () => {
+                  console.log('🔵 Discover Nearby button pressed!');
+                  console.log('🔍 Debug info:', { 
+                    source, 
+                    nearbyPlacesLength: nearbyPlaces.length,
+                    enrichingNearby,
+                    landmarkScanType: landmark?.scanType,
+                    hasSearchQueries: landmark?.nearbySearchQueries?.length || 0
+                  });
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  
+                  if (landmark && landmark.nearbySearchQueries?.length > 0) {
+                    try {
+                      setEnrichingNearby(true);
+                      console.log('Fetching nearby places for saved landmark...');
+                      const places = await enrichNearbyPlaces(landmark.nearbySearchQueries, landmark.coordinates);
+                      if (places.length > 0) {
+                        setNearbyPlaces(places);
+                        // Update landmark with nearby places for future saves
+                        setLandmark(prev => prev ? { ...prev, nearbyMustSeePlaces: places } : null);
+                        console.log('Found', places.length, 'nearby places');
+                      } else {
+                        console.log('No nearby places found');
+                      }
+                    } catch (e) {
+                      console.error('Error fetching nearby places:', e);
+                    } finally {
+                      setEnrichingNearby(false);
+                    }
+                  } else {
+                    console.log('No search queries available for this landmark');
+                  }
+                }}
+              >
+                <IconSymbol name="map" size={20} color="white" />
+                <ThemedText style={[styles.discoverButtonText, { color: 'white' }]}>
+                  {t('result.discoverNearbyPlaces')}
+                </ThemedText>
+              </Pressable>
             ) : null}
           </View>
         )}
@@ -759,14 +935,14 @@ export default function ResultScreen() {
         </Pressable>
         
         <Pressable 
-          style={[styles.bottomButton, styles.saveButton, { backgroundColor: colors.primary }]}
+          style={[styles.bottomButton, styles.saveButton, { backgroundColor: landmark.scanType === 'museum' ? colors.sunsetOrange : colors.primary }]}
           onPress={handleSave}
         >
           <IconSymbol name={isSaved ? "book.fill" : "book"} size={20} color="#FFFFFF" />
           <ThemedText style={[styles.bottomButtonText, { color: '#FFFFFF' }]}>
             {landmark.scanType === 'museum' 
-              ? (source === 'saved' || isSaved ? 'Remove from Collections' : 'Add to Collections')
-              : (source === 'saved' || isSaved ? 'Remove from My Passport' : 'Add to My Passport')
+              ? (source === 'saved' || isSaved ? t('result.removeFromCollection') : t('result.addToCollection'))
+              : (source === 'saved' || isSaved ? t('result.removeFromCollection') : t('result.addToCollection'))
             }
           </ThemedText>
         </Pressable>
@@ -930,10 +1106,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     alignItems: 'flex-start', 
     gap: Spacing.md,
-    minWidth: '45%', // Ensure proper wrapping
+    minWidth: '40%', // Allow more flexible wrapping for expansion
     maxWidth: '100%', // Prevent overflow
     marginBottom: Spacing.sm,
-    flex: 1
+    // flex property now handled dynamically in component
   },
   infoIconBox: { 
     width: 40, 
@@ -957,6 +1133,11 @@ const styles = StyleSheet.create({
   infoValue: { 
     fontSize: 16,
     fontWeight: '600'
+  },
+  chevronContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: Spacing.sm,
   },
 
   // Fun Facts
@@ -1118,6 +1299,24 @@ const styles = StyleSheet.create({
     // Primary button styling handled via backgroundColor prop
   },
   bottomButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  
+  // Discover Nearby Places Button
+  discoverButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    gap: Spacing.sm,
+    ...Shadows.medium,
+    minHeight: 50,
+    elevation: 3, // Android shadow
+  },
+  discoverButtonText: {
     fontSize: 16,
     fontWeight: '600',
   }

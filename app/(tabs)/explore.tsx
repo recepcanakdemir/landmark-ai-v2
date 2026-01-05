@@ -13,10 +13,12 @@ import { Colors, Spacing } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { LandmarkAnalysis } from '@/types';
 import { getSavedCollections, removeCollection } from '@/services/storageService';
+import { useTranslation } from 'react-i18next';
 
 export default function CollectionsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const { t } = useTranslation();
   const [collections, setCollections] = useState<LandmarkAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -47,7 +49,7 @@ export default function CollectionsScreen() {
       console.log('Loaded saved collections:', validCollections.length);
     } catch (error) {
       console.error('Error loading collections:', error);
-      Alert.alert('Error', 'Failed to load your collections');
+      Alert.alert(t('common.error'), t('collections.loadError'));
     } finally {
       setLoading(false);
     }
@@ -65,7 +67,6 @@ export default function CollectionsScreen() {
       pathname: '/result',
       params: { 
         landmarkId: collection.id,
-        imageUri: collection.imageUrl || '',
         savedLandmark: JSON.stringify(collection),
         source: 'saved'
       }
@@ -81,12 +82,12 @@ export default function CollectionsScreen() {
 
   const handleDeleteCollection = (collection: LandmarkAnalysis) => {
     Alert.alert(
-      "Remove from Collections",
-      `Remove "${collection.name}" from your collections?`,
+      t('collections.removeCollection'),
+      t('collections.removeConfirm', { collectionName: collection.name }),
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t('common.cancel'), style: "cancel" },
         { 
-          text: "Remove", 
+          text: t('common.remove'), 
           style: "destructive", 
           onPress: () => deleteCollection(collection.id, collection.name)
         }
@@ -103,10 +104,10 @@ export default function CollectionsScreen() {
       setCollections(prev => prev.filter(item => item.id !== collectionId));
       
       // Show success message
-      Alert.alert('Removed', `"${collectionName}" has been removed from your collections.`);
+      Alert.alert(t('collections.removed'), t('collections.removedSuccess', { collectionName }));
     } catch (error) {
       console.error('Error deleting collection:', error);
-      Alert.alert('Error', 'Failed to remove item. Please try again.');
+      Alert.alert(t('common.error'), t('collections.removeError'));
     }
   };
 
@@ -146,13 +147,13 @@ export default function CollectionsScreen() {
           color={colors.sunsetOrange} 
         />
         <ThemedText style={[styles.emptyTitle, { color: colors.textPrimary }]}>
-          Your Collections are Empty
+          {t('collections.title')}
         </ThemedText>
         <ThemedText style={[styles.emptyDescription, { color: colors.textSecondary }]}>
-          Start scanning artworks and museum pieces to build your personal art collection
+          {t('collections.emptyStateDesc')}
         </ThemedText>
         <CustomButton
-          title="Museum Scanner"
+          title={t('collections.scanArt')}
           onPress={handleMuseumScanPress}
           variant="primary"
           size="large"
@@ -169,10 +170,10 @@ export default function CollectionsScreen() {
       
       {/* Header */}
       <TabHeader
-        title="My Collections"
+        title={t('collections.title')}
         subtitle={collections.length > 0 
           ? `${collections.length} museum piece${collections.length !== 1 ? 's' : ''} discovered`
-          : 'Your art & museum discoveries'
+          : t('collections.subtitle')
         }
         alignment="left"
       />

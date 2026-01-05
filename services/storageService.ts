@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 import { LandmarkAnalysis } from '@/types';
+import { checkFirstSaveReview } from '@/services/reviewService';
 
 /**
  * Robust Storage Service for managing saved landmarks with corruption protection
@@ -11,6 +13,9 @@ const COLLECTIONS_KEY = 'saved_collections'; // For museum items only
 const SCAN_HISTORY_KEY = 'scan_history'; // For recent scans/analysis history
 const LEGACY_STORAGE_KEY = 'saved_plants'; // For plant->landmark migration
 const MAX_SCAN_HISTORY = 15; // Maximum number of recent scans to keep
+
+// Image storage directory in document directory (persistent across app updates)
+const IMAGES_DIR = `${FileSystem.documentDirectory}images/`;
 
 interface SavedLandmarkMeta {
   landmark: LandmarkAnalysis;
@@ -28,6 +33,119 @@ interface LegacyPlantData {
   name?: string;
   description?: string;
   [key: string]: any;
+}
+
+/**
+ * =============================================
+ * IMAGE PERSISTENCE HELPERS
+ * =============================================
+ */
+
+/**
+ * Ensure the images directory exists
+ */
+async function ensureImagesDirectory(): Promise<void> {
+  try {
+    const dirInfo = await FileSystem.getInfoAsync(IMAGES_DIR);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(IMAGES_DIR, { intermediates: true });
+      console.log('Created images directory:', IMAGES_DIR);
+    }
+  } catch (error) {
+    console.error('Error creating images directory:', error);
+  }
+}
+
+/**
+ * Generate a unique filename for an image
+ */
+function generateImageFilename(extension: string = 'jpg'): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(7);
+  return `landmark_${timestamp}_${random}.${extension}`;
+}
+
+/**
+ * Extract file extension from URI or default to jpg
+ */
+function getFileExtension(uri: string): string {
+  const match = uri.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+  return match ? match[1].toLowerCase() : 'jpg';
+}
+
+/**
+ * Save an image permanently to the document directory
+ * @param uri - The temporary image URI from camera or cache
+ * @returns Promise<string> - The filename only (not full path) for storage
+ */
+async function saveImagePermanently(uri: string): Promise<string> {
+  try {
+    // Skip if already a filename or remote image
+    if (!uri) {
+      throw new Error('No image URI provided');
+    }
+    
+    // If it's already just a filename (backward compatibility), return as-is
+    if (!uri.includes('/') && !uri.startsWith('http')) {
+      return uri;
+    }
+    
+    // If it's a remote image (http/https), return as-is
+    if (uri.startsWith('http://') || uri.startsWith('https://')) {
+      return uri;
+    }
+
+    // Ensure images directory exists
+    await ensureImagesDirectory();
+
+    // Generate unique filename with proper extension
+    const extension = getFileExtension(uri);
+    const filename = generateImageFilename(extension);
+    const destPath = `${IMAGES_DIR}${filename}`;
+
+    // Copy image from temporary location to permanent storage
+    await FileSystem.copyAsync({
+      from: uri,
+      to: destPath
+    });
+
+    console.log(`Image saved permanently: ${filename}`);
+    return filename;
+
+  } catch (error) {
+    console.error('Error saving image permanently:', error);
+    console.log('Falling back to original URI:', uri);
+    return uri; // Fallback to original URI if copy fails
+  }
+}
+
+/**
+ * Resolve image source for display components
+ * @param imageUri - Could be filename, full path, or remote URL
+ * @returns string - Full path or URL ready for Image component
+ */
+export function resolveImageSource(imageUri: string | undefined): string | undefined {
+  if (!imageUri) {
+    return undefined;
+  }
+
+  // Remote images - return as-is
+  if (imageUri.startsWith('http://') || imageUri.startsWith('https://')) {
+    return imageUri;
+  }
+
+  // Full file paths - return as-is (backward compatibility)
+  if (imageUri.startsWith('file://')) {
+    return imageUri;
+  }
+
+  // Filename only - construct full path to document directory
+  if (!imageUri.includes('/')) {
+    return `${IMAGES_DIR}${imageUri}`;
+  }
+
+  // Fallback - return as-is
+  return imageUri;
 }
 
 /**
@@ -247,10 +365,26 @@ export async function saveLandmark(landmark: LandmarkAnalysis): Promise<void> {
       console.log('Landmark already saved, skipping:', landmark.name);
       return;
     }
+
+    // Save image permanently if it exists
+    let permanentImageUrl = landmark.imageUrl;
+    if (landmark.imageUrl) {
+      try {
+        permanentImageUrl = await saveImagePermanently(landmark.imageUrl);
+      } catch (imageError) {
+        console.warn('Failed to save image permanently, using original URL:', imageError);
+      }
+    }
+    
+    // Create landmark with permanent image URL
+    const landmarkWithPermanentImage: LandmarkAnalysis = {
+      ...landmark,
+      imageUrl: permanentImageUrl
+    };
     
     // Create saved landmark metadata
     const savedLandmark: SavedLandmarkMeta = {
-      landmark,
+      landmark: landmarkWithPermanentImage,
       savedAt: new Date().toISOString()
     };
     
@@ -264,6 +398,11 @@ export async function saveLandmark(landmark: LandmarkAnalysis): Promise<void> {
     await AsyncStorage.setItem(PASSPORT_KEY, JSON.stringify(updatedLandmarks));
     
     console.log('Successfully saved landmark to passport:', landmark.name);
+    
+    // Check if this is the first save and trigger review if needed
+    checkFirstSaveReview().catch(error => {
+      console.error('💥 Error in first save review check:', error);
+    });
     
   } catch (error) {
     console.error('Error saving landmark:', error);
@@ -474,7 +613,7 @@ export async function forceCleanupCorruptedData(): Promise<{
     const cleanedCount = cleanedData.length;
     
     // Save cleaned data
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(cleanedData));
+    await AsyncStorage.setItem(PASSPORT_KEY, JSON.stringify(cleanedData));
     
     const result = {
       originalCount,
@@ -662,13 +801,29 @@ export async function addToScanHistory(landmark: LandmarkAnalysis): Promise<void
     }
     
     console.log('Adding to scan history:', landmark.name);
+
+    // Save image permanently if it exists
+    let permanentImageUrl = landmark.imageUrl;
+    if (landmark.imageUrl) {
+      try {
+        permanentImageUrl = await saveImagePermanently(landmark.imageUrl);
+      } catch (imageError) {
+        console.warn('Failed to save scan history image permanently, using original URL:', imageError);
+      }
+    }
+
+    // Create landmark with permanent image URL
+    const landmarkWithPermanentImage: LandmarkAnalysis = {
+      ...landmark,
+      imageUrl: permanentImageUrl
+    };
     
     // Get existing scan history with metadata
     const existingHistory = await getScanHistoryWithMeta();
     
     // Create scan history entry
     const scanEntry: ScanHistoryMeta = {
-      landmark,
+      landmark: landmarkWithPermanentImage,
       scannedAt: new Date().toISOString()
     };
     
@@ -820,10 +975,26 @@ export async function saveCollection(landmark: LandmarkAnalysis): Promise<void> 
       console.log('Museum item already in collections, skipping:', landmark.name);
       return;
     }
+
+    // Save image permanently if it exists
+    let permanentImageUrl = landmark.imageUrl;
+    if (landmark.imageUrl) {
+      try {
+        permanentImageUrl = await saveImagePermanently(landmark.imageUrl);
+      } catch (imageError) {
+        console.warn('Failed to save collection image permanently, using original URL:', imageError);
+      }
+    }
+
+    // Create landmark with permanent image URL
+    const landmarkWithPermanentImage: LandmarkAnalysis = {
+      ...landmark,
+      imageUrl: permanentImageUrl
+    };
     
     // Create new saved collection entry
     const savedCollection: SavedLandmarkMeta = {
-      landmark: landmark,
+      landmark: landmarkWithPermanentImage,
       savedAt: new Date().toISOString()
     };
     
@@ -834,6 +1005,11 @@ export async function saveCollection(landmark: LandmarkAnalysis): Promise<void> 
     // Save updated list to storage
     await AsyncStorage.setItem(COLLECTIONS_KEY, JSON.stringify(allCollectionEntries));
     console.log('Museum item successfully saved to collections');
+    
+    // Check if this is the first save and trigger review if needed
+    checkFirstSaveReview().catch(error => {
+      console.error('💥 Error in first save review check:', error);
+    });
     
   } catch (error) {
     console.error('Error saving museum item to collections:', error);
